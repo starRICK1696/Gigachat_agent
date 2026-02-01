@@ -1,0 +1,11 @@
+database:
+  path: data/database.db
+
+server:
+  host: "0.0.0.0"
+  port: 8000
+  reload: true
+
+gigachat:
+  certificate_path: "russian_trusted_root_ca.cer"
+  api_key: "YOUR_GIGACHAT_API_KEY_HERE"
