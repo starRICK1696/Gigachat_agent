@@ -4,7 +4,7 @@ from dataclasses import dataclass
 import tempfile
 import subprocess
 import numpy as np
-import lib.prompts as prompts
+from ..lib import prompts
 
 
 @dataclass
