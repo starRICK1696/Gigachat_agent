@@ -10,7 +10,7 @@ import yaml
 import logging
 import os
 
-from .lib.database import init_db, insert_or_update_context, get_context_by_id
+from .lib.database import init_db, insert_or_update_context, get_context_by_id, log_gigachat_request
 from .lib.task_processing import solve_task_from_str, is_json_response
 from .components.models import NewMessageRequest, NewMessageResponse, ErrorResponse
 from .components.gigachat import InitGigachatClient, MakeClassificationRequest, CutQueryIfNeeded, GigachatResponse
@@ -99,6 +99,8 @@ async def new_message(request: NewMessageRequest, fastapi_request: Request) -> N
     logger.info(f"chat_id: {request.chat_id}")
     logger.info(f"text: {request.text}")
     
+    current_query = f"User: {request.text}"  # Initialize early for error logging
+    
     try:
         gigachat_client = fastapi_request.app.state.gigachat_client
         config = fastapi_request.app.state.config
@@ -124,8 +126,23 @@ async def new_message(request: NewMessageRequest, fastapi_request: Request) -> N
             logger.info(f"GigaChat response received, length: {len(response_text)} chars, tokens: {gigachat_response.tokens}")
             logger.debug(f"Response text:\n{response_text}")
             
-            if not is_json_response(response_text):
+            is_json = is_json_response(response_text)
+            
+            if not is_json:
                 logger.info("Response is not JSON - returning to user as final answer")
+                
+                # Log to database
+                await log_gigachat_request(
+                    chat_id=request.chat_id,
+                    request_text=current_query,
+                    response_text=response_text,
+                    tokens_used=gigachat_response.tokens,
+                    is_json_response=False,
+                    task_id=None,
+                    task_result=None,
+                    error=None
+                )
+                
                 await insert_or_update_context(request.chat_id, current_query)
                 logger.info(f"=== REQUEST COMPLETED (non-JSON response) ===")
                 return NewMessageResponse(gigachat_response=response_text)
@@ -142,6 +159,18 @@ async def new_message(request: NewMessageRequest, fastapi_request: Request) -> N
                 task_data = task_result.failure()
                 logger.warning(f"Task failed: {task_data.result}")
             
+            # Log to database
+            await log_gigachat_request(
+                chat_id=request.chat_id,
+                request_text=current_query,
+                response_text=response_text,
+                tokens_used=gigachat_response.tokens,
+                is_json_response=True,
+                task_id=task_data.task_id,
+                task_result=task_data.result,
+                error=None if isinstance(task_result, Success) else "Task processing failed"
+            )
+            
             current_query = f"{current_query}\nAPI response: {task_data.result}"
             logger.debug(f"Updated query with API response, new length: {len(current_query)} chars")
             
@@ -155,12 +184,38 @@ async def new_message(request: NewMessageRequest, fastapi_request: Request) -> N
             
         logger.error(f"Max loop cycles ({max_loop_cycles}) exceeded without final response")
         logger.info(f"=== REQUEST FAILED (max cycles exceeded) ===")
+        
+        # Log error to database
+        await log_gigachat_request(
+            chat_id=request.chat_id,
+            request_text=current_query,
+            response_text=None,
+            tokens_used=None,
+            is_json_response=None,
+            task_id=None,
+            task_result=None,
+            error="Max loop cycles exceeded"
+        )
+        
         raise HTTPException(status_code=500, detail="Error processing request: max loop cycles exceeded")
     except HTTPException:
         raise
     except Exception as e:
         logger.error(f"Unexpected error processing request: {e}", exc_info=True)
         logger.info(f"=== REQUEST FAILED (exception) ===")
+        
+        # Log error to database
+        await log_gigachat_request(
+            chat_id=request.chat_id,
+            request_text=current_query,
+            response_text=None,
+            tokens_used=None,
+            is_json_response=None,
+            task_id=None,
+            task_result=None,
+            error=str(e)
+        )
+        
         raise HTTPException(status_code=500, detail=str(e))
 
 
