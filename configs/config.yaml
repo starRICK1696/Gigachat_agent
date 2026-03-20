@@ -7,7 +7,7 @@ server:
   reload: true
 
 gigachat:
-  certificate_path: "russian_trusted_root_ca.cer"
-  api_key: "YOUR_GIGACHAT_API_KEY_HERE"
+  certificate_path: "russian_trusted_root_ca_pem.crt"
+  api_key: "MDE5YjlkN2MtNGNhYy03MDQ5LTg1YzgtODYwMWNkMTVkYTAyOmJkMTYxYTI4LTQyYzUtNDA1MC05YTJhLWEwYTFmNDY0YzBmNw=="
   max_tokens: 80000
   max_loop_cycles: 6
