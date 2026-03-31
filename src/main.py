@@ -6,13 +6,22 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from returns.result import Success
+import json
 import yaml
 import logging
 import os
 
-from .lib.database import init_db, insert_or_update_context, get_context_by_id, log_gigachat_request
+from .lib.database import (
+    init_db, insert_or_update_context, get_context_by_id, log_gigachat_request,
+    create_user, authenticate_user, create_chat, get_user_chats, delete_chat,
+    chat_belongs_to_user, update_chat_title, get_messages_json, update_messages_json
+)
 from .lib.task_processing import solve_task_from_str, is_json_response
-from .components.models import NewMessageRequest, NewMessageResponse, ErrorResponse
+from .components.models import (
+    NewMessageRequest, NewMessageResponse, ErrorResponse,
+    RegisterRequest, LoginRequest, AuthResponse,
+    CreateChatRequest, ChatListResponse, ChatInfo, DeleteChatRequest
+)
 from .components.gigachat import InitGigachatClient, MakeClassificationRequest, CutQueryIfNeeded, GigachatResponse
 
 # Configure logging level from environment variable, default to INFO
@@ -86,7 +95,7 @@ async def new_message(request: NewMessageRequest, fastapi_request: Request) -> N
     """Processes new message from user.
     
     Args:
-        request: Request containing id and user text fields.
+        request: Request containing id, user_id and user text fields.
         fastapi_request: FastAPI request object to access app state.
         
     Returns:
@@ -96,8 +105,12 @@ async def new_message(request: NewMessageRequest, fastapi_request: Request) -> N
         HTTPException: If any operation fails.
     """
     logger.info(f"=== NEW MESSAGE REQUEST ===")
-    logger.info(f"chat_id: {request.chat_id}")
+    logger.info(f"chat_id: {request.chat_id}, user_id: {request.user_id}")
     logger.info(f"text: {request.text}")
+    
+    # Verify chat belongs to user
+    if not await chat_belongs_to_user(request.chat_id, request.user_id):
+        raise HTTPException(status_code=403, detail="Chat does not belong to this user")
     
     current_query = f"User: {request.text}"  # Initialize early for error logging
     
@@ -111,6 +124,11 @@ async def new_message(request: NewMessageRequest, fastapi_request: Request) -> N
         
         context = await get_context_by_id(request.chat_id) or ""
         logger.debug(f"Retrieved context for chat_id={request.chat_id}: {len(context)} chars")
+        
+        # Update chat title with first message text
+        if not context:
+            title = request.text[:40] + ("..." if len(request.text) > 40 else "")
+            await update_chat_title(request.chat_id, title)
         
         current_query = f"{context}\nUser: {request.text}" if context else f"User: {request.text}"
         logger.debug(f"Initial query constructed, length: {len(current_query)} chars")
@@ -144,6 +162,13 @@ async def new_message(request: NewMessageRequest, fastapi_request: Request) -> N
                 )
                 
                 await insert_or_update_context(request.chat_id, current_query)
+                
+                # Save messages to database
+                existing_messages = json.loads(await get_messages_json(request.chat_id))
+                existing_messages.append({"role": "user", "content": request.text})
+                existing_messages.append({"role": "assistant", "content": response_text})
+                await update_messages_json(request.chat_id, json.dumps(existing_messages, ensure_ascii=False))
+                
                 logger.info(f"=== REQUEST COMPLETED (non-JSON response) ===")
                 return NewMessageResponse(gigachat_response=response_text)
             
@@ -223,3 +248,90 @@ async def new_message(request: NewMessageRequest, fastapi_request: Request) -> N
 async def health_check():
     """Health check endpoint."""
     return {"status": "healthy"}
+
+
+# ==================== Auth endpoints ====================
+
+@app.post(
+    "/register",
+    response_model=AuthResponse,
+    responses={409: {"model": ErrorResponse}},
+    summary="Register a new user",
+    description="Create a new user account with username and password"
+)
+async def register(request: RegisterRequest) -> AuthResponse:
+    """Register a new user."""
+    user_id = await create_user(request.username, request.password)
+    if user_id is None:
+        raise HTTPException(status_code=409, detail="Username already exists")
+    return AuthResponse(user_id=user_id, username=request.username)
+
+
+@app.post(
+    "/login",
+    response_model=AuthResponse,
+    responses={401: {"model": ErrorResponse}},
+    summary="Login",
+    description="Authenticate with username and password"
+)
+async def login(request: LoginRequest) -> AuthResponse:
+    """Authenticate a user."""
+    user_id = await authenticate_user(request.username, request.password)
+    if user_id is None:
+        raise HTTPException(status_code=401, detail="Invalid username or password")
+    return AuthResponse(user_id=user_id, username=request.username)
+
+
+# ==================== Chat management endpoints ====================
+
+@app.post(
+    "/chats",
+    response_model=ChatInfo,
+    summary="Create a new chat",
+    description="Create a new chat for the authenticated user"
+)
+async def create_new_chat(request: CreateChatRequest) -> ChatInfo:
+    """Create a new chat."""
+    chat_id = await create_chat(request.user_id, request.title)
+    return ChatInfo(id=chat_id, title=request.title, created_at="")
+
+
+@app.get(
+    "/chats/{user_id}",
+    response_model=ChatListResponse,
+    summary="Get user chats",
+    description="Get all chats for a user"
+)
+async def get_chats(user_id: int) -> ChatListResponse:
+    """Get all chats for a user."""
+    chats = await get_user_chats(user_id)
+    return ChatListResponse(
+        chats=[ChatInfo(id=c["id"], title=c["title"], created_at=c["created_at"]) for c in chats]
+    )
+
+
+@app.delete(
+    "/chats",
+    summary="Delete a chat",
+    description="Delete a chat belonging to the user"
+)
+async def remove_chat(request: DeleteChatRequest):
+    """Delete a chat."""
+    deleted = await delete_chat(request.chat_id, request.user_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Chat not found or does not belong to user")
+    return {"status": "success", "message": "Chat deleted"}
+
+
+@app.get(
+    "/chats/{chat_id}/messages",
+    summary="Get chat messages",
+    description="Get all messages for a specific chat"
+)
+async def get_chat_messages(chat_id: int, user_id: int):
+    """Get messages for a chat."""
+    if not await chat_belongs_to_user(chat_id, user_id):
+        raise HTTPException(status_code=403, detail="Chat does not belong to this user")
+    
+    messages_json = await get_messages_json(chat_id)
+    return {"messages": json.loads(messages_json)}
