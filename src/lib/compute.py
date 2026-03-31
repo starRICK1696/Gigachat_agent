@@ -71,7 +71,7 @@ class ProductionSchedulingEvaluator(BasicEvaluator):
         return QUBOProductionScheduling(matrix, setup_times, job_values)
     
     def __return(self):
-        return {"answer" : "some loss", "characteristics" : self.evaluator.solution}
+        return {"answer" : self.evaluator.min_energy + self.evaluator.delta, "characteristics" : self.evaluator.solution}
 
 
 class MultiKnapEvaluator(BasicEvaluator):
@@ -79,7 +79,7 @@ class MultiKnapEvaluator(BasicEvaluator):
         return QUBOMultiKnapsack(matrix, capabilities)
     
     def __return(self):
-        return {"answer" : -self.min_energy, "characteristics" : self.evaluator.solution}
+        return {"answer" : -self.evaluator.min_energy, "characteristics" : self.evaluator.solution}
 
 
 class MaxWeightCliqueEvaluator(BasicEvaluator):
