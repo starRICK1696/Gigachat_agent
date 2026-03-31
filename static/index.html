@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>GigaChat Agent API</title>
+    <title>GigaChat Agent</title>
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     <style>
         * {
@@ -17,50 +17,69 @@
             background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
             min-height: 100vh;
             color: #e0e0e0;
+        }
+
+        /* ==================== Auth Screen ==================== */
+        .auth-container {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
             padding: 20px;
         }
 
-        .container {
-            max-width: 900px;
-            margin: 0 auto;
-        }
-
-        h1 {
-            text-align: center;
-            margin-bottom: 30px;
-            color: #00d4ff;
-            font-size: 2rem;
-        }
-
-        .card {
+        .auth-card {
             background: rgba(255, 255, 255, 0.05);
             border-radius: 16px;
-            padding: 24px;
-            margin-bottom: 20px;
+            padding: 40px;
+            width: 100%;
+            max-width: 420px;
             border: 1px solid rgba(255, 255, 255, 0.1);
             backdrop-filter: blur(10px);
         }
 
-        .card h2 {
+        .auth-card h1 {
+            text-align: center;
             color: #00d4ff;
-            margin-bottom: 20px;
-            font-size: 1.3rem;
+            margin-bottom: 8px;
+            font-size: 1.8rem;
+        }
+
+        .auth-card .subtitle {
+            text-align: center;
+            color: #888;
+            margin-bottom: 30px;
+            font-size: 0.9rem;
+        }
+
+        .auth-tabs {
             display: flex;
-            align-items: center;
-            gap: 10px;
+            margin-bottom: 24px;
+            border-radius: 8px;
+            overflow: hidden;
+            border: 1px solid rgba(255, 255, 255, 0.15);
         }
 
-        .card h2 .method {
-            background: #4caf50;
-            color: white;
-            padding: 4px 10px;
-            border-radius: 6px;
-            font-size: 0.8rem;
-            font-weight: bold;
+        .auth-tab {
+            flex: 1;
+            padding: 10px;
+            text-align: center;
+            cursor: pointer;
+            background: transparent;
+            color: #888;
+            border: none;
+            font-size: 0.95rem;
+            font-weight: 600;
+            transition: all 0.3s;
         }
 
-        .card h2 .method.get {
-            background: #2196f3;
+        .auth-tab.active {
+            background: rgba(0, 212, 255, 0.15);
+            color: #00d4ff;
+        }
+
+        .auth-tab:hover:not(.active) {
+            background: rgba(255, 255, 255, 0.05);
         }
 
         .form-group {
@@ -92,7 +111,7 @@
         }
 
         textarea {
-            min-height: 100px;
+            min-height: 80px;
             resize: vertical;
             font-family: inherit;
         }
@@ -126,98 +145,297 @@
             box-shadow: none;
         }
 
-        .response-section {
-            margin-top: 20px;
+        .auth-error {
+            color: #f44336;
+            font-size: 0.85rem;
+            margin-bottom: 12px;
+            text-align: center;
+            min-height: 20px;
         }
 
-        .response-header {
+        /* ==================== App Layout ==================== */
+        .app-container {
+            display: flex;
+            height: 100vh;
+        }
+
+        /* ==================== Sidebar ==================== */
+        .sidebar {
+            width: 280px;
+            min-width: 280px;
+            background: rgba(0, 0, 0, 0.3);
+            border-right: 1px solid rgba(255, 255, 255, 0.1);
+            display: flex;
+            flex-direction: column;
+        }
+
+        .sidebar-header {
+            padding: 16px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        .sidebar-header .user-info {
             display: flex;
             justify-content: space-between;
             align-items: center;
-            margin-bottom: 10px;
         }
 
-        .response-header h3 {
-            color: #b0b0b0;
-            font-size: 0.9rem;
-        }
-
-        .status-badge {
-            padding: 4px 12px;
-            border-radius: 20px;
-            font-size: 0.8rem;
+        .sidebar-header .user-info span {
+            color: #00d4ff;
             font-weight: 600;
+            font-size: 0.95rem;
         }
 
-        .status-badge.success {
-            background: rgba(76, 175, 80, 0.2);
-            color: #4caf50;
-        }
-
-        .status-badge.error {
-            background: rgba(244, 67, 54, 0.2);
+        .btn-logout {
+            background: transparent;
+            border: 1px solid rgba(244, 67, 54, 0.5);
             color: #f44336;
+            padding: 6px 12px;
+            font-size: 0.8rem;
+            width: auto;
+            border-radius: 6px;
         }
 
-        .status-badge.pending {
-            background: rgba(255, 193, 7, 0.2);
-            color: #ffc107;
+        .btn-logout:hover {
+            background: rgba(244, 67, 54, 0.1);
+            box-shadow: none;
+            transform: none;
         }
 
-        .response-body {
-            background: rgba(0, 0, 0, 0.4);
+        .btn-new-chat {
+            padding: 10px 16px;
+            font-size: 0.9rem;
             border-radius: 8px;
-            padding: 16px;
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
-            font-size: 1rem;
-            line-height: 1.5;
-            word-break: break-word;
-            max-height: 400px;
+        }
+
+        .chat-list {
+            flex: 1;
             overflow-y: auto;
+            padding: 8px;
+        }
+
+        .chat-item {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 12px;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: background 0.2s;
+            margin-bottom: 4px;
+            border: 1px solid transparent;
+        }
+
+        .chat-item:hover {
+            background: rgba(255, 255, 255, 0.05);
+        }
+
+        .chat-item.active {
+            background: rgba(0, 212, 255, 0.1);
+            border-color: rgba(0, 212, 255, 0.3);
+        }
+
+        .chat-item-info {
+            flex: 1;
+            min-width: 0;
+        }
+
+        .chat-item-title {
+            font-size: 0.9rem;
+            color: #e0e0e0;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .chat-item-date {
+            font-size: 0.75rem;
+            color: #666;
+            margin-top: 2px;
+        }
+
+        .btn-delete-chat {
+            background: transparent;
+            border: none;
+            color: #666;
+            cursor: pointer;
+            padding: 4px 8px;
+            font-size: 1.1rem;
+            border-radius: 4px;
+            width: auto;
+            opacity: 0;
+            transition: opacity 0.2s, color 0.2s;
+        }
+
+        .chat-item:hover .btn-delete-chat {
+            opacity: 1;
+        }
+
+        .btn-delete-chat:hover {
+            color: #f44336;
+            background: rgba(244, 67, 54, 0.1);
+            transform: none;
+            box-shadow: none;
+        }
+
+        .no-chats {
+            text-align: center;
+            color: #666;
+            padding: 20px;
+            font-size: 0.85rem;
+        }
+
+        /* ==================== Main Chat Area ==================== */
+        .main-area {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            min-width: 0;
+        }
+
+        .chat-header {
+            padding: 16px 24px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+            background: rgba(0, 0, 0, 0.2);
+        }
+
+        .chat-header h2 {
+            color: #00d4ff;
+            font-size: 1.2rem;
+        }
+
+        .chat-messages {
+            flex: 1;
+            overflow-y: auto;
+            padding: 20px 24px;
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+        }
+
+        .message {
+            max-width: 80%;
+            padding: 12px 16px;
+            border-radius: 12px;
+            line-height: 1.5;
+            font-size: 0.95rem;
+        }
+
+        .message.user {
+            align-self: flex-end;
+            background: rgba(0, 212, 255, 0.15);
+            border: 1px solid rgba(0, 212, 255, 0.3);
+            color: #e0e0e0;
+        }
+
+        .message.assistant {
+            align-self: flex-start;
+            background: rgba(255, 255, 255, 0.05);
             border: 1px solid rgba(255, 255, 255, 0.1);
+            color: #e0e0e0;
         }
 
-        .response-body p {
-            margin-bottom: 1em;
+        .message.assistant p {
+            margin-bottom: 0.8em;
         }
 
-        .response-body p:last-child {
+        .message.assistant p:last-child {
             margin-bottom: 0;
         }
 
-        .response-body pre {
-            background: rgba(0, 0, 0, 0.6);
+        .message.assistant pre {
+            background: rgba(0, 0, 0, 0.5);
             padding: 12px;
             border-radius: 6px;
             overflow-x: auto;
             font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
-            font-size: 0.9rem;
-            margin-bottom: 1em;
+            font-size: 0.85rem;
+            margin: 8px 0;
         }
 
-        .response-body code {
+        .message.assistant code {
             font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
-            background: rgba(0, 0, 0, 0.6);
+            background: rgba(0, 0, 0, 0.4);
             padding: 2px 4px;
             border-radius: 4px;
-            font-size: 0.9em;
+            font-size: 0.85em;
         }
 
-        .response-body pre code {
+        .message.assistant pre code {
             background: transparent;
             padding: 0;
         }
 
-        .response-body ul, .response-body ol {
-            margin-bottom: 1em;
-            padding-left: 2em;
+        .message.assistant ul, .message.assistant ol {
+            padding-left: 1.5em;
+            margin-bottom: 0.8em;
         }
 
-        .response-body:empty::before {
-            content: 'Ответ появится здесь...';
-            color: #666;
+        .message.error {
+            align-self: center;
+            background: rgba(244, 67, 54, 0.1);
+            border: 1px solid rgba(244, 67, 54, 0.3);
+            color: #f44336;
+            font-size: 0.85rem;
         }
 
+        .empty-chat {
+            flex: 1;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            color: #555;
+            font-size: 1.1rem;
+        }
+
+        .no-chat-selected {
+            flex: 1;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            color: #555;
+            font-size: 1.1rem;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .no-chat-selected .icon {
+            font-size: 3rem;
+            opacity: 0.5;
+        }
+
+        /* ==================== Input Area ==================== */
+        .input-area {
+            padding: 16px 24px;
+            border-top: 1px solid rgba(255, 255, 255, 0.1);
+            background: rgba(0, 0, 0, 0.2);
+        }
+
+        .input-row {
+            display: flex;
+            gap: 12px;
+            align-items: flex-end;
+        }
+
+        .input-row textarea {
+            flex: 1;
+            min-height: 44px;
+            max-height: 150px;
+            padding: 10px 14px;
+            resize: none;
+        }
+
+        .btn-send {
+            width: auto;
+            padding: 10px 20px;
+            white-space: nowrap;
+            height: 44px;
+        }
+
+        /* ==================== Loading ==================== */
         .loading {
             display: inline-block;
             width: 20px;
@@ -226,280 +444,470 @@
             border-radius: 50%;
             border-top-color: #00d4ff;
             animation: spin 1s linear infinite;
-            margin-right: 10px;
         }
 
         @keyframes spin {
             to { transform: rotate(360deg); }
         }
 
-        .info-text {
+        .typing-indicator {
+            align-self: flex-start;
+            padding: 12px 16px;
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
             color: #888;
             font-size: 0.85rem;
-            margin-top: 8px;
         }
 
-        .history-section {
-            margin-top: 30px;
+        /* ==================== Scrollbar ==================== */
+        ::-webkit-scrollbar {
+            width: 6px;
         }
 
-        .history-item {
-            background: rgba(0, 0, 0, 0.2);
-            border-radius: 8px;
-            padding: 12px;
-            margin-bottom: 10px;
-            border-left: 3px solid #00d4ff;
-        }
-
-        .history-item .timestamp {
-            color: #666;
-            font-size: 0.8rem;
-            margin-bottom: 6px;
-        }
-
-        .history-item .request {
-            color: #ffc107;
-            font-size: 0.85rem;
-            margin-bottom: 4px;
-        }
-
-        .history-item .response {
-            color: #4caf50;
-            font-size: 0.85rem;
-        }
-
-        .clear-history {
+        ::-webkit-scrollbar-track {
             background: transparent;
-            border: 1px solid rgba(244, 67, 54, 0.5);
-            color: #f44336;
-            padding: 8px 16px;
-            font-size: 0.85rem;
-            width: auto;
         }
 
-        .clear-history:hover {
-            background: rgba(244, 67, 54, 0.1);
-            box-shadow: none;
-            transform: none;
+        ::-webkit-scrollbar-thumb {
+            background: rgba(255, 255, 255, 0.15);
+            border-radius: 3px;
+        }
+
+        ::-webkit-scrollbar-thumb:hover {
+            background: rgba(255, 255, 255, 0.25);
+        }
+
+        /* ==================== Hidden ==================== */
+        .hidden {
+            display: none !important;
         }
     </style>
 </head>
 <body>
-    <div class="container">
-        <h1>🤖 GigaChat Agent API</h1>
 
-        <!-- New Message Endpoint -->
-        <div class="card">
-            <h2><span class="method">POST</span> /new_message</h2>
-            
-            <form id="newMessageForm">
+    <!-- ==================== Auth Screen ==================== -->
+    <div id="authScreen" class="auth-container">
+        <div class="auth-card">
+            <h1>🤖 GigaChat Agent</h1>
+            <p class="subtitle">Войдите или зарегистрируйтесь для начала работы</p>
+
+            <div class="auth-tabs">
+                <button class="auth-tab active" data-tab="login" onclick="switchAuthTab('login')">Вход</button>
+                <button class="auth-tab" data-tab="register" onclick="switchAuthTab('register')">Регистрация</button>
+            </div>
+
+            <div class="auth-error" id="authError"></div>
+
+            <form id="authForm" onsubmit="handleAuth(event)">
                 <div class="form-group">
-                    <label for="chatId">Chat ID</label>
-                    <input type="number" id="chatId" name="chat_id" placeholder="Введите ID чата (например: 1)" value="1" required>
+                    <label for="authUsername">Имя пользователя</label>
+                    <input type="text" id="authUsername" placeholder="Введите имя пользователя" required autocomplete="username">
                 </div>
-                
+
                 <div class="form-group">
-                    <label for="messageText">Сообщение</label>
-                    <textarea id="messageText" name="text" placeholder="Введите ваше сообщение..." required></textarea>
+                    <label for="authPassword">Пароль</label>
+                    <input type="password" id="authPassword" placeholder="Введите пароль" required autocomplete="current-password">
                 </div>
-                
-                <button type="submit" id="sendBtn">Отправить сообщение</button>
+
+                <button type="submit" id="authBtn">Войти</button>
             </form>
+        </div>
+    </div>
 
-            <div class="response-section">
-                <div class="response-header">
-                    <h3>Ответ сервера</h3>
-                    <span class="status-badge" id="statusBadge" style="display: none;"></span>
+    <!-- ==================== App Screen ==================== -->
+    <div id="appScreen" class="app-container hidden">
+
+        <!-- Sidebar -->
+        <div class="sidebar">
+            <div class="sidebar-header">
+                <div class="user-info">
+                    <span>👤 <span id="displayUsername"></span></span>
+                    <button class="btn-logout" onclick="logout()">Выйти</button>
                 </div>
-                <div class="response-body" id="responseBody"></div>
+                <button class="btn-new-chat" onclick="createNewChat()">+ Новый чат</button>
+            </div>
+            <div class="chat-list" id="chatList">
+                <div class="no-chats">Нет чатов. Создайте новый!</div>
             </div>
         </div>
 
-        <!-- Health Check Endpoint -->
-        <div class="card">
-            <h2><span class="method get">GET</span> /health</h2>
-            
-            <button type="button" id="healthBtn">Проверить статус</button>
-            
-            <div class="response-section">
-                <div class="response-header">
-                    <h3>Статус сервера</h3>
-                    <span class="status-badge" id="healthStatusBadge" style="display: none;"></span>
-                </div>
-                <div class="response-body" id="healthResponseBody"></div>
+        <!-- Main Area -->
+        <div class="main-area">
+            <!-- No chat selected state -->
+            <div class="no-chat-selected" id="noChatSelected">
+                <div class="icon">💬</div>
+                <div>Выберите чат или создайте новый</div>
             </div>
-        </div>
 
-        <!-- Request History -->
-        <div class="card history-section">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
-                <h2 style="margin-bottom: 0;">📜 История запросов</h2>
-                <button type="button" class="clear-history" id="clearHistoryBtn">Очистить</button>
-            </div>
-            <div id="historyContainer">
-                <p class="info-text">История запросов пуста</p>
+            <!-- Chat view -->
+            <div id="chatView" class="hidden" style="display:flex; flex-direction:column; flex:1; min-height:0;">
+                <div class="chat-header">
+                    <h2 id="chatTitle">Чат</h2>
+                </div>
+
+                <div class="chat-messages" id="chatMessages">
+                    <div class="empty-chat">Начните диалог, отправив сообщение</div>
+                </div>
+
+                <div class="input-area">
+                    <div class="input-row">
+                        <textarea id="messageInput" placeholder="Введите сообщение..." rows="1"
+                            onkeydown="handleInputKeydown(event)"></textarea>
+                        <button class="btn-send" id="sendBtn" onclick="sendMessage()">Отправить</button>
+                    </div>
+                </div>
             </div>
         </div>
     </div>
 
     <script>
         const API_BASE_URL = 'http://localhost:8000';
-        let requestHistory = JSON.parse(localStorage.getItem('requestHistory') || '[]');
 
-        // Render history on page load
-        renderHistory();
+        // ==================== State ====================
+        let currentUser = null;   // { user_id, username }
+        let currentChatId = null;
+        let chatMessages = {};    // chatId -> [{role, content}]
+        let isLoading = false;
 
-        // New Message Form Handler
-        document.getElementById('newMessageForm').addEventListener('submit', async (e) => {
+        // ==================== Init ====================
+        (function init() {
+            const saved = localStorage.getItem('currentUser');
+            if (saved) {
+                try {
+                    currentUser = JSON.parse(saved);
+                    showApp();
+                    loadChats();
+                } catch {
+                    localStorage.removeItem('currentUser');
+                }
+            }
+
+        })();
+
+        // ==================== Auth ====================
+        let authMode = 'login';
+
+        function switchAuthTab(tab) {
+            authMode = tab;
+            document.querySelectorAll('.auth-tab').forEach(t => t.classList.remove('active'));
+            document.querySelector(`.auth-tab[data-tab="${tab}"]`).classList.add('active');
+            document.getElementById('authBtn').textContent = tab === 'login' ? 'Войти' : 'Зарегистрироваться';
+            document.getElementById('authError').textContent = '';
+        }
+
+        async function handleAuth(e) {
             e.preventDefault();
-            
-            const chatId = parseInt(document.getElementById('chatId').value);
-            const text = document.getElementById('messageText').value;
-            const sendBtn = document.getElementById('sendBtn');
-            const responseBody = document.getElementById('responseBody');
-            const statusBadge = document.getElementById('statusBadge');
+            const username = document.getElementById('authUsername').value.trim();
+            const password = document.getElementById('authPassword').value;
+            const errorEl = document.getElementById('authError');
+            const btn = document.getElementById('authBtn');
 
-            // Show loading state
-            sendBtn.disabled = true;
-            sendBtn.innerHTML = '<span class="loading"></span>Отправка...';
-            statusBadge.style.display = 'inline-block';
-            statusBadge.className = 'status-badge pending';
-            statusBadge.textContent = 'Ожидание...';
-            responseBody.textContent = '';
+            if (!username || !password) {
+                errorEl.textContent = 'Заполните все поля';
+                return;
+            }
+
+            btn.disabled = true;
+            btn.textContent = 'Загрузка...';
+            errorEl.textContent = '';
 
             try {
-                const startTime = Date.now();
+                const endpoint = authMode === 'login' ? '/login' : '/register';
+                const response = await fetch(`${API_BASE_URL}${endpoint}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ username, password })
+                });
+
+                const data = await response.json();
+
+                if (response.ok) {
+                    currentUser = { user_id: data.user_id, username: data.username };
+                    localStorage.setItem('currentUser', JSON.stringify(currentUser));
+                    showApp();
+                    loadChats();
+                } else {
+                    errorEl.textContent = data.detail || 'Ошибка авторизации';
+                }
+            } catch (error) {
+                errorEl.textContent = 'Ошибка сети: ' + error.message;
+            } finally {
+                btn.disabled = false;
+                btn.textContent = authMode === 'login' ? 'Войти' : 'Зарегистрироваться';
+            }
+        }
+
+        function logout() {
+            currentUser = null;
+            currentChatId = null;
+            chatMessages = {};
+            localStorage.removeItem('currentUser');
+            document.getElementById('authScreen').classList.remove('hidden');
+            document.getElementById('appScreen').classList.add('hidden');
+            document.getElementById('authUsername').value = '';
+            document.getElementById('authPassword').value = '';
+            document.getElementById('authError').textContent = '';
+            // Reset chat view to default state
+            showNoChatSelected();
+            document.getElementById('chatList').innerHTML = '<div class="no-chats">Нет чатов. Создайте новый!</div>';
+        }
+
+        function showApp() {
+            document.getElementById('authScreen').classList.add('hidden');
+            document.getElementById('appScreen').classList.remove('hidden');
+            document.getElementById('displayUsername').textContent = currentUser.username;
+        }
+
+        // ==================== Chat List ====================
+        async function loadChats() {
+            if (!currentUser) return;
+
+            try {
+                const response = await fetch(`${API_BASE_URL}/chats/${currentUser.user_id}`);
+                const data = await response.json();
+
+                if (response.ok) {
+                    renderChatList(data.chats);
+                }
+            } catch (error) {
+                console.error('Failed to load chats:', error);
+            }
+        }
+
+        function renderChatList(chats) {
+            const container = document.getElementById('chatList');
+
+            if (!chats || chats.length === 0) {
+                container.innerHTML = '<div class="no-chats">Нет чатов. Создайте новый!</div>';
+                return;
+            }
+
+            container.innerHTML = chats.map(chat => `
+                <div class="chat-item ${chat.id === currentChatId ? 'active' : ''}"
+                     onclick="selectChat(${chat.id}, '${escapeHtml(chat.title)}')"
+                     data-chat-id="${chat.id}">
+                    <div class="chat-item-info">
+                        <div class="chat-item-title">${escapeHtml(chat.title)}</div>
+                        <div class="chat-item-date">${chat.created_at || ''}</div>
+                    </div>
+                    <button class="btn-delete-chat" onclick="deleteChat(event, ${chat.id})" title="Удалить чат">🗑</button>
+                </div>
+            `).join('');
+        }
+
+        async function createNewChat() {
+            if (!currentUser) return;
+
+            try {
+                const response = await fetch(`${API_BASE_URL}/chats`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ user_id: currentUser.user_id, title: 'Новый чат' })
+                });
+
+                const data = await response.json();
+
+                if (response.ok) {
+                    await loadChats();
+                    selectChat(data.id, data.title);
+                }
+            } catch (error) {
+                console.error('Failed to create chat:', error);
+            }
+        }
+
+        async function deleteChat(event, chatId) {
+            event.stopPropagation();
+
+            if (!confirm('Удалить этот чат?')) return;
+
+            try {
+                const response = await fetch(`${API_BASE_URL}/chats`, {
+                    method: 'DELETE',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ user_id: currentUser.user_id, chat_id: chatId })
+                });
+
+                if (response.ok) {
+                    // Remove local messages
+                    delete chatMessages[chatId];
+
+                    if (currentChatId === chatId) {
+                        currentChatId = null;
+                        showNoChatSelected();
+                    }
+
+                    await loadChats();
+                }
+            } catch (error) {
+                console.error('Failed to delete chat:', error);
+            }
+        }
+
+        async function selectChat(chatId, title) {
+            currentChatId = chatId;
+
+            // Update active state in sidebar
+            document.querySelectorAll('.chat-item').forEach(el => {
+                el.classList.toggle('active', parseInt(el.dataset.chatId) === chatId);
+            });
+
+            // Show chat view
+            document.getElementById('noChatSelected').classList.add('hidden');
+            const chatView = document.getElementById('chatView');
+            chatView.classList.remove('hidden');
+            chatView.style.display = 'flex';
+
+            document.getElementById('chatTitle').textContent = title;
+
+            // Load messages from server
+            await loadChatMessages(chatId);
+
+            renderMessages();
+            document.getElementById('messageInput').focus();
+        }
+
+        async function loadChatMessages(chatId) {
+            try {
+                const response = await fetch(`${API_BASE_URL}/chats/${chatId}/messages?user_id=${currentUser.user_id}`);
+                if (response.ok) {
+                    const data = await response.json();
+                    chatMessages[chatId] = data.messages || [];
+                }
+            } catch (error) {
+                console.error('Failed to load chat messages:', error);
+            }
+        }
+
+        function showNoChatSelected() {
+            document.getElementById('noChatSelected').classList.remove('hidden');
+            const chatView = document.getElementById('chatView');
+            chatView.classList.add('hidden');
+            chatView.style.display = 'none';
+        }
+
+        // ==================== Messages ====================
+        function renderMessages() {
+            const container = document.getElementById('chatMessages');
+            const messages = chatMessages[currentChatId] || [];
+
+            if (messages.length === 0) {
+                container.innerHTML = '<div class="empty-chat">Начните диалог, отправив сообщение</div>';
+                return;
+            }
+
+            container.innerHTML = messages.map(msg => {
+                if (msg.role === 'user') {
+                    return `<div class="message user">${escapeHtml(msg.content)}</div>`;
+                } else if (msg.role === 'error') {
+                    return `<div class="message error">${escapeHtml(msg.content)}</div>`;
+                } else {
+                    return `<div class="message assistant">${marked.parse(msg.content)}</div>`;
+                }
+            }).join('');
+
+            container.scrollTop = container.scrollHeight;
+        }
+
+        function addMessage(role, content) {
+            if (!chatMessages[currentChatId]) {
+                chatMessages[currentChatId] = [];
+            }
+            chatMessages[currentChatId].push({ role, content });
+            renderMessages();
+        }
+
+        async function sendMessage() {
+            if (!currentChatId || isLoading) return;
+
+            const input = document.getElementById('messageInput');
+            const text = input.value.trim();
+            if (!text) return;
+
+            input.value = '';
+            autoResizeTextarea(input);
+
+            addMessage('user', text);
+
+            // Show typing indicator
+            const messagesContainer = document.getElementById('chatMessages');
+            const typingEl = document.createElement('div');
+            typingEl.className = 'typing-indicator';
+            typingEl.innerHTML = '<span class="loading"></span> Генерация ответа...';
+            messagesContainer.appendChild(typingEl);
+            messagesContainer.scrollTop = messagesContainer.scrollHeight;
+
+            isLoading = true;
+            document.getElementById('sendBtn').disabled = true;
+
+            try {
                 const response = await fetch(`${API_BASE_URL}/new_message`, {
                     method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
+                    headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
-                        chat_id: chatId,
+                        chat_id: currentChatId,
+                        user_id: currentUser.user_id,
                         text: text
                     })
                 });
 
-                const duration = Date.now() - startTime;
                 const data = await response.json();
 
-                if (response.ok) {
-                    statusBadge.className = 'status-badge success';
-                    statusBadge.textContent = `${response.status} OK (${duration}ms)`;
-                    if (data.gigachat_response) {
-                        responseBody.innerHTML = marked.parse(data.gigachat_response);
-                    } else {
-                        responseBody.textContent = JSON.stringify(data, null, 2);
+                // Remove typing indicator
+                if (typingEl.parentNode) typingEl.remove();
+
+                if (response.ok && data.gigachat_response) {
+                    addMessage('assistant', data.gigachat_response);
+
+                    // Update chat title if it's the first message
+                    const messages = chatMessages[currentChatId];
+                    if (messages && messages.filter(m => m.role === 'user').length === 1) {
+                        const newTitle = text.substring(0, 40) + (text.length > 40 ? '...' : '');
+                        document.getElementById('chatTitle').textContent = newTitle;
+                        loadChats();  // Refresh sidebar
                     }
-                    
-                    // Add to history
-                    addToHistory('POST /new_message', { chat_id: chatId, text }, data, true);
                 } else {
-                    statusBadge.className = 'status-badge error';
-                    statusBadge.textContent = `${response.status} Error`;
-                    responseBody.textContent = JSON.stringify(data, null, 2);
-                    
-                    addToHistory('POST /new_message', { chat_id: chatId, text }, data, false);
+                    addMessage('error', data.detail || 'Ошибка при получении ответа');
                 }
             } catch (error) {
-                statusBadge.className = 'status-badge error';
-                statusBadge.textContent = 'Ошибка сети';
-                responseBody.textContent = `Ошибка: ${error.message}`;
-                
-                addToHistory('POST /new_message', { chat_id: chatId, text }, { error: error.message }, false);
+                if (typingEl.parentNode) typingEl.remove();
+                addMessage('error', 'Ошибка сети: ' + error.message);
             } finally {
-                sendBtn.disabled = false;
-                sendBtn.textContent = 'Отправить сообщение';
+                isLoading = false;
+                document.getElementById('sendBtn').disabled = false;
             }
-        });
-
-        // Health Check Handler
-        document.getElementById('healthBtn').addEventListener('click', async () => {
-            const healthBtn = document.getElementById('healthBtn');
-            const responseBody = document.getElementById('healthResponseBody');
-            const statusBadge = document.getElementById('healthStatusBadge');
-
-            healthBtn.disabled = true;
-            healthBtn.innerHTML = '<span class="loading"></span>Проверка...';
-            statusBadge.style.display = 'inline-block';
-            statusBadge.className = 'status-badge pending';
-            statusBadge.textContent = 'Ожидание...';
-
-            try {
-                const startTime = Date.now();
-                const response = await fetch(`${API_BASE_URL}/health`);
-                const duration = Date.now() - startTime;
-                const data = await response.json();
-
-                if (response.ok) {
-                    statusBadge.className = 'status-badge success';
-                    statusBadge.textContent = `${response.status} OK (${duration}ms)`;
-                    responseBody.textContent = JSON.stringify(data, null, 2);
-                } else {
-                    statusBadge.className = 'status-badge error';
-                    statusBadge.textContent = `${response.status} Error`;
-                    responseBody.textContent = JSON.stringify(data, null, 2);
-                }
-            } catch (error) {
-                statusBadge.className = 'status-badge error';
-                statusBadge.textContent = 'Ошибка сети';
-                responseBody.textContent = `Ошибка: ${error.message}`;
-            } finally {
-                healthBtn.disabled = false;
-                healthBtn.textContent = 'Проверить статус';
-            }
-        });
-
-        // Clear History Handler
-        document.getElementById('clearHistoryBtn').addEventListener('click', () => {
-            requestHistory = [];
-            localStorage.setItem('requestHistory', '[]');
-            renderHistory();
-        });
-
-        function addToHistory(endpoint, request, response, success) {
-            const historyItem = {
-                timestamp: new Date().toLocaleString('ru-RU'),
-                endpoint,
-                request,
-                response,
-                success
-            };
-            
-            requestHistory.unshift(historyItem);
-            if (requestHistory.length > 20) {
-                requestHistory.pop();
-            }
-            
-            localStorage.setItem('requestHistory', JSON.stringify(requestHistory));
-            renderHistory();
         }
 
-        function renderHistory() {
-            const container = document.getElementById('historyContainer');
-            
-            if (requestHistory.length === 0) {
-                container.innerHTML = '<p class="info-text">История запросов пуста</p>';
-                return;
+        // ==================== Input Handling ====================
+        function handleInputKeydown(e) {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                sendMessage();
             }
+        }
 
-            container.innerHTML = requestHistory.map(item => {
-                let responseText = '';
-                if (item.response && item.response.gigachat_response) {
-                    responseText = item.response.gigachat_response;
-                } else {
-                    responseText = JSON.stringify(item.response);
-                }
-                const truncatedResponse = responseText.substring(0, 200) + (responseText.length > 200 ? '...' : '');
-                
-                return `
-                <div class="history-item" style="border-left-color: ${item.success ? '#4caf50' : '#f44336'}">
-                    <div class="timestamp">${item.timestamp} - ${item.endpoint}</div>
-                    <div class="request">→ ${JSON.stringify(item.request)}</div>
-                    <div class="response" style="color: ${item.success ? '#4caf50' : '#f44336'}">← ${truncatedResponse}</div>
-                </div>
-                `;
-            }).join('');
+        // Auto-resize textarea
+        const messageInput = document.getElementById('messageInput');
+        if (messageInput) {
+            messageInput.addEventListener('input', function() {
+                autoResizeTextarea(this);
+            });
+        }
+
+        function autoResizeTextarea(el) {
+            el.style.height = 'auto';
+            el.style.height = Math.min(el.scrollHeight, 150) + 'px';
+        }
+
+        // ==================== Utilities ====================
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
         }
     </script>
 </body>

@@ -1,6 +1,7 @@
 """Database module for SQLite operations."""
 
 import aiosqlite
+import hashlib
 import logging
 from pathlib import Path
 from datetime import datetime
@@ -12,6 +13,11 @@ DATABASE_PATH = Path("data/database.db")
 LOGS_DATABASE_PATH = Path("logs/request_logs.db")
 
 
+def hash_password(password: str) -> str:
+    """Hash a password using SHA-256."""
+    return hashlib.sha256(password.encode()).hexdigest()
+
+
 async def init_db() -> None:
     """Initialize the database and create tables if they don't exist."""
     logger.debug(f"Initializing database at: {DATABASE_PATH}")
@@ -21,10 +27,25 @@ async def init_db() -> None:
         logger.debug("Executing CREATE TABLE IF NOT EXISTS for 'items' table")
         await db.execute("""
             CREATE TABLE IF NOT EXISTS items (
-                id INTEGER PRIMARY KEY,
-                context TEXT NOT NULL
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                context TEXT NOT NULL,
+                title TEXT NOT NULL DEFAULT 'Новый чат',
+                messages_json TEXT NOT NULL DEFAULT '[]',
+                created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                FOREIGN KEY (user_id) REFERENCES users(id)
             )
         """)
+        
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS users (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                username TEXT NOT NULL UNIQUE,
+                password_hash TEXT NOT NULL,
+                created_at TEXT NOT NULL DEFAULT (datetime('now'))
+            )
+        """)
+        
         await db.commit()
         logger.info("Database initialized successfully")
     
@@ -130,22 +151,72 @@ async def get_recent_logs(limit: int = 50) -> list[dict]:
 
 
 async def insert_or_update_context(chat_id: int, context: str) -> None:
-    """Insert or replace a row in the table.
+    """Update context for an existing chat.
     
     Args:
-        chat_id: The ID of the row to insert/update.
+        chat_id: The ID of the chat to update.
         context: The context value to store.
     """
-    logger.debug(f"INSERT OR REPLACE for chat_id={chat_id}, context length={len(context)} chars")
+    logger.debug(f"UPDATE context for chat_id={chat_id}, context length={len(context)} chars")
     logger.debug(f"Context preview: {context[:200]}{'...' if len(context) > 200 else ''}")
     
     async with aiosqlite.connect(DATABASE_PATH) as db:
         await db.execute(
-            "INSERT OR REPLACE INTO items (id, context) VALUES (?, ?)",
-            (chat_id, context)
+            "UPDATE items SET context = ? WHERE id = ?",
+            (context, chat_id)
         )
         await db.commit()
         logger.info(f"Context saved for chat_id={chat_id}")
+
+
+async def update_chat_title(chat_id: int, title: str) -> None:
+    """Update the title of a chat.
+    
+    Args:
+        chat_id: The ID of the chat.
+        title: The new title.
+    """
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        await db.execute(
+            "UPDATE items SET title = ? WHERE id = ?",
+            (title, chat_id)
+        )
+        await db.commit()
+        logger.info(f"Title updated for chat_id={chat_id}")
+
+
+async def get_messages_json(chat_id: int) -> str:
+    """Get the messages JSON for a chat.
+    
+    Args:
+        chat_id: The chat ID.
+        
+    Returns:
+        JSON string of messages array.
+    """
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        async with db.execute(
+            "SELECT messages_json FROM items WHERE id = ?",
+            (chat_id,)
+        ) as cursor:
+            row = await cursor.fetchone()
+            return row[0] if row else "[]"
+
+
+async def update_messages_json(chat_id: int, messages_json: str) -> None:
+    """Update the messages JSON for a chat.
+    
+    Args:
+        chat_id: The chat ID.
+        messages_json: JSON string of messages array.
+    """
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        await db.execute(
+            "UPDATE items SET messages_json = ? WHERE id = ?",
+            (messages_json, chat_id)
+        )
+        await db.commit()
+        logger.debug(f"Messages JSON updated for chat_id={chat_id}")
 
 
 async def get_context_by_id(chat_id: int) -> str | None:
@@ -171,3 +242,143 @@ async def get_context_by_id(chat_id: int) -> str | None:
             else:
                 logger.debug(f"No context found for chat_id={chat_id}")
                 return None
+
+
+# ==================== User management ====================
+
+async def create_user(username: str, password: str) -> Optional[int]:
+    """Create a new user.
+    
+    Args:
+        username: The username.
+        password: The plain-text password (will be hashed).
+        
+    Returns:
+        The new user's ID, or None if username already exists.
+    """
+    password_hash = hash_password(password)
+    
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        try:
+            cursor = await db.execute(
+                "INSERT INTO users (username, password_hash) VALUES (?, ?)",
+                (username, password_hash)
+            )
+            await db.commit()
+            user_id = cursor.lastrowid
+            logger.info(f"Created user '{username}' with id={user_id}")
+            return user_id
+        except aiosqlite.IntegrityError:
+            logger.warning(f"User '{username}' already exists")
+            return None
+
+
+async def authenticate_user(username: str, password: str) -> Optional[int]:
+    """Authenticate a user by username and password.
+    
+    Args:
+        username: The username.
+        password: The plain-text password.
+        
+    Returns:
+        The user's ID if credentials are valid, None otherwise.
+    """
+    password_hash = hash_password(password)
+    
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        async with db.execute(
+            "SELECT id FROM users WHERE username = ? AND password_hash = ?",
+            (username, password_hash)
+        ) as cursor:
+            row = await cursor.fetchone()
+            if row:
+                logger.info(f"User '{username}' authenticated successfully")
+                return row[0]
+            else:
+                logger.warning(f"Authentication failed for user '{username}'")
+                return None
+
+
+# ==================== Chat management ====================
+
+async def create_chat(user_id: int, title: str = "Новый чат") -> int:
+    """Create a new chat for a user.
+    
+    Args:
+        user_id: The user's ID.
+        title: The chat title.
+        
+    Returns:
+        The new chat's ID.
+    """
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        cursor = await db.execute(
+            "INSERT INTO items (user_id, context, title) VALUES (?, ?, ?)",
+            (user_id, "", title)
+        )
+        await db.commit()
+        chat_id: int = cursor.lastrowid  # type: ignore[assignment]
+        logger.info(f"Created chat id={chat_id} for user_id={user_id}")
+        return chat_id
+
+
+async def get_user_chats(user_id: int) -> list[dict]:
+    """Get all chats for a user.
+    
+    Args:
+        user_id: The user's ID.
+        
+    Returns:
+        List of chat dicts with id, title, created_at.
+    """
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute(
+            "SELECT id, title, created_at FROM items WHERE user_id = ? ORDER BY id DESC",
+            (user_id,)
+        ) as cursor:
+            rows = await cursor.fetchall()
+            return [dict(row) for row in rows]
+
+
+async def delete_chat(chat_id: int, user_id: int) -> bool:
+    """Delete a chat belonging to a user.
+    
+    Args:
+        chat_id: The chat ID to delete.
+        user_id: The user's ID (for ownership check).
+        
+    Returns:
+        True if deleted, False if not found or not owned by user.
+    """
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        cursor = await db.execute(
+            "DELETE FROM items WHERE id = ? AND user_id = ?",
+            (chat_id, user_id)
+        )
+        await db.commit()
+        if cursor.rowcount > 0:
+            logger.info(f"Deleted chat id={chat_id} for user_id={user_id}")
+            return True
+        else:
+            logger.warning(f"Chat id={chat_id} not found for user_id={user_id}")
+            return False
+
+
+async def chat_belongs_to_user(chat_id: int, user_id: int) -> bool:
+    """Check if a chat belongs to a user.
+    
+    Args:
+        chat_id: The chat ID.
+        user_id: The user's ID.
+        
+    Returns:
+        True if the chat belongs to the user.
+    """
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        async with db.execute(
+            "SELECT 1 FROM items WHERE id = ? AND user_id = ?",
+            (chat_id, user_id)
+        ) as cursor:
+            row = await cursor.fetchone()
+            return row is not None
