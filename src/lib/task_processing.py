@@ -2,7 +2,7 @@ import json
 import logging
 import re
 from dataclasses import dataclass
-from typing import Optional
+from typing import Optional, Tuple, List, Dict
 from returns.result import Result, Success, Failure
 
 logger = logging.getLogger(__name__)
@@ -14,51 +14,226 @@ class TaskResult:
     task_id: Optional[int]
 
 
+# ==================== Phase 1: Classification Parsing ====================
+
+def parse_classification(response_text: str) -> Tuple[int, Optional[int]]:
+    """Parse Phase 1 classification response.
+
+    The model returns a single number (0-4) or ``-1 N`` when clarification
+    is needed for task type *N*.
+
+    Args:
+        response_text: Raw model response (should contain a number).
+
+    Returns:
+        ``(classification_code, clarification_task_id)``
+
+    Examples:
+        ``"4"``      → ``(4, None)``
+        ``"-1 3"``   → ``(-1, 3)``
+        ``"0"``      → ``(0, None)``
+        ``"Ответ: 4"`` → ``(4, None)``
+    """
+    logger.debug(f"Parsing classification: {response_text}")
+
+    text = response_text.strip()
+
+    # Extract all integers (including negative) from the response
+    numbers = re.findall(r'-?\d+', text)
+
+    if not numbers:
+        logger.warning(
+            "No numbers found in classification response, defaulting to 0 (conversation)"
+        )
+        return (0, None)
+
+    classification = int(numbers[0])
+    logger.debug(f"Classification code: {classification}")
+
+    # If -1 (clarification needed), look for the second number (task type)
+    if classification == -1 and len(numbers) > 1:
+        task_id = int(numbers[1])
+        logger.debug(f"Clarification needed for task_id: {task_id}")
+        return (-1, task_id)
+
+    # Validate the code
+    if classification not in [0, 1, 2, 3, 4, -1]:
+        logger.warning(f"Invalid classification code {classification}, defaulting to 0")
+        return (0, None)
+
+    return (classification, None)
+
+
+# ==================== Phase 2: Data Extraction Parsing ====================
+
+def parse_arithmetic_data(response_text: str) -> str:
+    """Extract a math expression from Phase 2 response.
+
+    Args:
+        response_text: Model response containing the expression.
+
+    Returns:
+        The mathematical expression string.
+
+    Example:
+        ``"2 + 2 * 2"`` → ``"2 + 2 * 2"``
+    """
+    logger.debug(f"Parsing arithmetic expression: {response_text}")
+
+    expression = response_text.strip()
+
+    # If there are multiple lines, take the first non-empty one
+    lines = [line.strip() for line in expression.split('\n') if line.strip()]
+    if lines:
+        expression = lines[0]
+
+    logger.debug(f"Extracted expression: {expression}")
+    return expression
+
+
+def parse_matrix_data(response_text: str) -> List[List[int]]:
+    """Parse a matrix from plain-text lines (for TSP / Max Clique).
+
+    Args:
+        response_text: Model response with the matrix rows.
+
+    Returns:
+        Matrix as a list of lists of ints.
+
+    Raises:
+        ValueError: If the matrix is not square.
+
+    Example:
+        ``"0 10 15\\n10 0 20\\n15 20 0"``
+        → ``[[0, 10, 15], [10, 0, 20], [15, 20, 0]]``
+    """
+    logger.debug(f"Parsing matrix data: {response_text}")
+
+    lines = response_text.strip().split('\n')
+    matrix: List[List[int]] = []
+
+    for line in lines:
+        line = line.strip()
+        if not line:
+            continue
+
+        numbers = re.findall(r'-?\d+', line)
+        if numbers:
+            row = [int(x) for x in numbers]
+            matrix.append(row)
+
+    logger.debug(f"Parsed matrix: {matrix}")
+
+    # Validate: matrix must be square
+    if matrix:
+        size = len(matrix)
+        for row in matrix:
+            if len(row) != size:
+                logger.warning(f"Matrix is not square: {matrix}")
+                raise ValueError("Matrix must be square")
+
+    return matrix
+
+
+def parse_knapsack_data(response_text: str) -> Dict:
+    """Parse knapsack data from Phase 2 response.
+
+    Expected format::
+
+        <capacity>
+        <weight1> <value1>
+        <weight2> <value2>
+        ...
+
+    Args:
+        response_text: Model response with knapsack data.
+
+    Returns:
+        Dict with ``capacity`` (int) and ``items`` (list of dicts).
+
+    Raises:
+        ValueError: If the data cannot be parsed.
+
+    Example:
+        ``"10\\n2 5\\n3 10"``
+        → ``{"capacity": 10, "items": [{"weight": 2, "value": 5}, {"weight": 3, "value": 10}]}``
+    """
+    logger.debug(f"Parsing knapsack data: {response_text}")
+
+    lines = [line.strip() for line in response_text.strip().split('\n') if line.strip()]
+
+    if not lines:
+        raise ValueError("Empty knapsack data")
+
+    # First line — capacity
+    capacity_numbers = re.findall(r'\d+', lines[0])
+    if not capacity_numbers:
+        raise ValueError("No capacity found in first line")
+
+    capacity = int(capacity_numbers[0])
+
+    # Remaining lines — items (weight value)
+    items: List[Dict] = []
+    for line in lines[1:]:
+        numbers = re.findall(r'\d+', line)
+        if len(numbers) >= 2:
+            weight = int(numbers[0])
+            value = int(numbers[1])
+            items.append({"weight": weight, "value": value})
+
+    result = {
+        "capacity": capacity,
+        "items": items
+    }
+
+    logger.debug(f"Parsed knapsack data: {result}")
+    return result
+
+
+# ==================== Legacy helpers (still used by solve_task_from_str) ====================
+
 def clean_json_response(text: str) -> str:
     """Remove markdown formatting from JSON response.
-    
+
     Handles cases like:
-    - ```json\n{...}\n```
-    - ```\n{...}\n```
-    - Escaped quotes like \"
+    - ```json\\n{...}\\n```
+    - ```\\n{...}\\n```
+    - Escaped quotes like \\"
     """
     logger.debug(f"Cleaning JSON response: {text[:100]}{'...' if len(text) > 100 else ''}")
-    
+
     cleaned = text.strip()
-    
+
     # Remove markdown code blocks (```json ... ``` or ``` ... ```)
     code_block_pattern = r'^```(?:json)?\s*\n?(.*?)\n?```$'
     match = re.match(code_block_pattern, cleaned, re.DOTALL | re.IGNORECASE)
     if match:
         cleaned = match.group(1).strip()
         logger.debug(f"Removed markdown code block, result: {cleaned[:100]}")
-    
+
     # Handle escaped quotes if the whole thing is wrapped in quotes
     if cleaned.startswith('"') and cleaned.endswith('"'):
         try:
-            # Try to parse as a JSON string that contains JSON
             inner = json.loads(cleaned)
             if isinstance(inner, str):
                 cleaned = inner
-                logger.debug(f"Unwrapped quoted JSON string")
+                logger.debug("Unwrapped quoted JSON string")
         except json.JSONDecodeError:
             pass
-    
+
     return cleaned
 
 
 def is_json_response(text: str) -> bool:
     logger.debug(f"Checking if response is JSON: {text[:100]}{'...' if len(text) > 100 else ''}")
-    
-    # First try raw text
+
     try:
         json.loads(text)
         logger.debug("Response is valid JSON (raw)")
         return True
     except (json.JSONDecodeError, TypeError):
         pass
-    
-    # Try after cleaning markdown
+
     cleaned = clean_json_response(text)
     try:
         json.loads(cleaned)
@@ -88,26 +263,25 @@ def solve_task_from_str(json_response_str: str) -> Result[TaskResult, TaskResult
     Автоматически очищает markdown-форматирование.
     """
     logger.info(f"Solving task from JSON string: {json_response_str}")
-    
-    # Clean markdown formatting before parsing
+
     cleaned_json = clean_json_response(json_response_str)
     logger.debug(f"Cleaned JSON: {cleaned_json}")
-    
+
     try:
         task_data = json.loads(cleaned_json)
         logger.debug(f"Parsed task data: {task_data}")
-        
+
         task_id = task_data.get("task_id")
         logger.info(f"Task ID: {task_id}")
-        
+
         if task_id == 4:
             expression = task_data.get("data", {}).get("expression")
             logger.debug(f"Arithmetic expression: {expression}")
-            
+
             if not expression:
                 logger.warning("No 'expression' field in JSON data")
                 return Failure(TaskResult("Ошибка: В JSON нет поля 'expression'", task_id))
-            
+
             try:
                 result = eval(expression)
                 logger.info(f"Arithmetic result: {expression} = {result}")

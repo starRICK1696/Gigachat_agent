@@ -16,13 +16,24 @@ from .lib.database import (
     create_user, authenticate_user, create_chat, get_user_chats, delete_chat,
     chat_belongs_to_user, update_chat_title, get_messages_json, update_messages_json
 )
-from .lib.task_processing import solve_task_from_str, is_json_response
+from .lib.task_processing import (
+    solve_task_from_str,
+    parse_classification,
+    parse_arithmetic_data,
+    parse_matrix_data,
+    parse_knapsack_data,
+    get_task_summary,
+)
 from .components.models import (
     NewMessageRequest, NewMessageResponse, ErrorResponse,
     RegisterRequest, LoginRequest, AuthResponse,
     CreateChatRequest, ChatListResponse, ChatInfo, DeleteChatRequest
 )
-from .components.gigachat import InitGigachatClient, MakeClassificationRequest, CutQueryIfNeeded, GigachatResponse
+from .components.gigachat import (
+    InitGigachatClient, CutQueryIfNeeded, GigachatResponse,
+    ClassifyTaskType, ExtractTaskData, MakeConversationalResponse, RequestClarification,
+    FinalizeTaskResponse,
+)
 
 # Configure logging level from environment variable, default to INFO
 log_level = os.environ.get("LOG_LEVEL", "INFO").upper()
@@ -84,6 +95,20 @@ async def root():
     return FileResponse("static/index.html")
 
 
+# ==================== Helper to save messages and context ====================
+
+async def _save_response(chat_id: int, user_text: str, assistant_text: str, current_query: str):
+    """Persist context and chat messages after producing a final response."""
+    await insert_or_update_context(chat_id, current_query)
+
+    existing_messages = json.loads(await get_messages_json(chat_id))
+    existing_messages.append({"role": "user", "content": user_text})
+    existing_messages.append({"role": "assistant", "content": assistant_text})
+    await update_messages_json(chat_id, json.dumps(existing_messages, ensure_ascii=False))
+
+
+# ==================== Main message endpoint ====================
+
 @app.post(
     "/new_message",
     response_model=NewMessageResponse,
@@ -94,8 +119,14 @@ async def root():
 async def new_message(request: NewMessageRequest, fastapi_request: Request) -> NewMessageResponse:
     """Processes new message from user.
     
+    The handler uses a **two-phase** approach:
+
+    * **Phase 1** – ask the model to classify the request (returns a number).
+    * **Phase 2** – if a task is detected, ask the model to extract the
+      task-specific data in a simple plain-text format.
+
     Args:
-        request: Request containing id, user_id and user text fields.
+        request: Request containing chat_id, user_id and user text fields.
         fastapi_request: FastAPI request object to access app state.
         
     Returns:
@@ -104,7 +135,7 @@ async def new_message(request: NewMessageRequest, fastapi_request: Request) -> N
     Raises:
         HTTPException: If any operation fails.
     """
-    logger.info(f"=== NEW MESSAGE REQUEST ===")
+    logger.info("=== NEW MESSAGE REQUEST ===")
     logger.info(f"chat_id: {request.chat_id}, user_id: {request.user_id}")
     logger.info(f"text: {request.text}")
     
@@ -137,80 +168,209 @@ async def new_message(request: NewMessageRequest, fastapi_request: Request) -> N
             logger.info(f"--- Loop cycle {cycle + 1}/{max_loop_cycles} ---")
             logger.debug(f"Current query:\n{current_query[:1000]}{'...' if len(current_query) > 1000 else ''}")
             
-            logger.info("Sending classification request to GigaChat")
-            gigachat_response = MakeClassificationRequest(current_query, gigachat_client)
-            response_text = gigachat_response.text
+            # ========== PHASE 1: TASK CLASSIFICATION ==========
+            logger.info("=== PHASE 1: Task Classification ===")
+            classification_response = ClassifyTaskType(current_query, gigachat_client)
             
-            logger.info(f"GigaChat response received, length: {len(response_text)} chars, tokens: {gigachat_response.tokens}")
-            logger.debug(f"Response text:\n{response_text}")
+            logger.info(
+                f"Classification response: '{classification_response.text}', "
+                f"tokens: {classification_response.tokens}"
+            )
             
-            is_json = is_json_response(response_text)
+            # Parse the classification code
+            try:
+                classification_code, clarification_task_id = parse_classification(
+                    classification_response.text
+                )
+            except Exception as e:
+                logger.error(f"Failed to parse classification: {e}")
+                classification_code = 0  # Default to conversation
+                clarification_task_id = None
             
-            if not is_json:
-                logger.info("Response is not JSON - returning to user as final answer")
+            logger.info(
+                f"Classification code: {classification_code}, "
+                f"clarification_task_id: {clarification_task_id}"
+            )
+            
+            # ========== CODE 0: CONVERSATION ==========
+            if classification_code == 0:
+                logger.info("Classification: CONVERSATION — generating text response")
                 
-                # Log to database
+                conversational_response = MakeConversationalResponse(
+                    current_query, gigachat_client
+                )
+                
                 await log_gigachat_request(
                     chat_id=request.chat_id,
                     request_text=current_query,
-                    response_text=response_text,
-                    tokens_used=gigachat_response.tokens,
+                    response_text=conversational_response.text,
+                    tokens_used=classification_response.tokens + conversational_response.tokens,
                     is_json_response=False,
                     task_id=None,
                     task_result=None,
-                    error=None
+                    error=None,
                 )
                 
-                await insert_or_update_context(request.chat_id, current_query)
+                await _save_response(
+                    request.chat_id, request.text,
+                    conversational_response.text, current_query,
+                )
                 
-                # Save messages to database
-                existing_messages = json.loads(await get_messages_json(request.chat_id))
-                existing_messages.append({"role": "user", "content": request.text})
-                existing_messages.append({"role": "assistant", "content": response_text})
-                await update_messages_json(request.chat_id, json.dumps(existing_messages, ensure_ascii=False))
+                logger.info("=== REQUEST COMPLETED (conversation) ===")
+                return NewMessageResponse(gigachat_response=conversational_response.text)
+            
+            # ========== CODE -1: CLARIFICATION NEEDED ==========
+            if classification_code == -1:
+                logger.info(
+                    f"Classification: CLARIFICATION NEEDED for task_id={clarification_task_id}"
+                )
                 
-                logger.info(f"=== REQUEST COMPLETED (non-JSON response) ===")
-                return NewMessageResponse(gigachat_response=response_text)
+                clarification_response = RequestClarification(
+                    current_query, clarification_task_id or 0, gigachat_client
+                )
+                
+                await log_gigachat_request(
+                    chat_id=request.chat_id,
+                    request_text=current_query,
+                    response_text=clarification_response.text,
+                    tokens_used=classification_response.tokens + clarification_response.tokens,
+                    is_json_response=False,
+                    task_id=clarification_task_id,
+                    task_result="Clarification requested",
+                    error=None,
+                )
+                
+                await _save_response(
+                    request.chat_id, request.text,
+                    clarification_response.text, current_query,
+                )
+                
+                logger.info("=== REQUEST COMPLETED (clarification) ===")
+                return NewMessageResponse(gigachat_response=clarification_response.text)
             
-            logger.info(f"Response is JSON - processing as task")
-            logger.debug(f"JSON response: {response_text}")
+            # ========== CODES 1-4: TASK ==========
+            if classification_code in [1, 2, 3, 4]:
+                logger.info(f"Classification: TASK (task_id={classification_code})")
+                
+                # ========== PHASE 2: DATA EXTRACTION ==========
+                logger.info("=== PHASE 2: Data Extraction ===")
+                extraction_response = ExtractTaskData(
+                    current_query, classification_code, gigachat_client
+                )
+                
+                logger.debug(f"Extraction response: {extraction_response.text}")
+                
+                # Parse extracted data depending on task type and build JSON
+                # that solve_task_from_str() expects.
+                task_json = ""
+                try:
+                    if classification_code == 4:  # Arithmetic
+                        expression = parse_arithmetic_data(extraction_response.text)
+                        task_json = json.dumps({
+                            "task_id": 4,
+                            "data": {"expression": expression}
+                        })
+                        logger.info(f"Arithmetic expression: {expression}")
+                        
+                    elif classification_code == 1:  # TSP
+                        distances = parse_matrix_data(extraction_response.text)
+                        task_json = json.dumps({
+                            "task_id": 1,
+                            "data": {"distances": distances}
+                        })
+                        logger.info(f"TSP distances matrix: {distances}")
+                        
+                    elif classification_code == 2:  # Max Clique
+                        adjacency = parse_matrix_data(extraction_response.text)
+                        task_json = json.dumps({
+                            "task_id": 2,
+                            "data": {"adjacency_matrix": adjacency}
+                        })
+                        logger.info(f"Max Clique adjacency matrix: {adjacency}")
+                        
+                    elif classification_code == 3:  # Knapsack
+                        knapsack_data = parse_knapsack_data(extraction_response.text)
+                        task_json = json.dumps({
+                            "task_id": 3,
+                            "data": knapsack_data
+                        })
+                        logger.info(f"Knapsack data: {knapsack_data}")
+                    
+                except Exception as e:
+                    logger.error(f"Failed to parse task data: {e}")
+                    
+                    await log_gigachat_request(
+                        chat_id=request.chat_id,
+                        request_text=current_query,
+                        response_text=extraction_response.text,
+                        tokens_used=(
+                            classification_response.tokens + extraction_response.tokens
+                        ),
+                        is_json_response=False,
+                        task_id=classification_code,
+                        task_result=None,
+                        error=f"Data parsing failed: {e}",
+                    )
+                    
+                    raise HTTPException(
+                        status_code=500,
+                        detail=f"Failed to parse task data: {e}",
+                    )
+                
+                # ========== SOLVE THE TASK ==========
+                logger.info("=== TASK PROCESSING ===")
+                task_result = solve_task_from_str(task_json)
+                
+                if isinstance(task_result, Success):
+                    task_data = task_result.unwrap()
+                    logger.info(f"Task solved successfully: {task_data.result}")
+                else:
+                    task_data = task_result.failure()
+                    logger.warning(f"Task failed: {task_data.result}")
+                
+                total_tokens = (
+                    classification_response.tokens + extraction_response.tokens
+                )
+                
+                # ========== FINALIZE: Present result to user ==========
+                task_name = get_task_summary(classification_code)
+                logger.info(f"Generating final response for task: {task_name}")
+                
+                final_response = FinalizeTaskResponse(
+                    current_query, task_name, task_data.result, gigachat_client
+                )
+                total_tokens += final_response.tokens
+                
+                await log_gigachat_request(
+                    chat_id=request.chat_id,
+                    request_text=current_query,
+                    response_text=final_response.text,
+                    tokens_used=total_tokens,
+                    is_json_response=True,
+                    task_id=task_data.task_id,
+                    task_result=task_data.result,
+                    error=None if isinstance(task_result, Success) else "Task processing failed",
+                )
+                
+                await _save_response(
+                    request.chat_id, request.text,
+                    final_response.text, current_query,
+                )
+                
+                logger.info("=== REQUEST COMPLETED (task solved) ===")
+                return NewMessageResponse(gigachat_response=final_response.text)
             
-            task_result = solve_task_from_str(response_text)
-            
-            if isinstance(task_result, Success):
-                task_data = task_result.unwrap()
-                logger.info(f"Task solved successfully: {task_data.result}")
-            else:
-                task_data = task_result.failure()
-                logger.warning(f"Task failed: {task_data.result}")
-            
-            # Log to database
-            await log_gigachat_request(
-                chat_id=request.chat_id,
-                request_text=current_query,
-                response_text=response_text,
-                tokens_used=gigachat_response.tokens,
-                is_json_response=True,
-                task_id=task_data.task_id,
-                task_result=task_data.result,
-                error=None if isinstance(task_result, Success) else "Task processing failed"
+            # Unknown classification code
+            logger.warning(f"Unknown classification code: {classification_code}")
+            raise HTTPException(
+                status_code=500,
+                detail=f"Unknown classification code: {classification_code}",
             )
             
-            current_query = f"{current_query}\nAPI response: {task_data.result}"
-            logger.debug(f"Updated query with API response, new length: {len(current_query)} chars")
-            
-            logger.debug("Checking if query needs to be cut due to token limit")
-            current_query = CutQueryIfNeeded(
-                GigachatResponse(current_query, gigachat_response.tokens),
-                gigachat_client,
-                max_tokens
-            ).text
-            logger.debug(f"Query after potential cutting: {len(current_query)} chars")
-            
+        # Exited the loop — max cycles exceeded
         logger.error(f"Max loop cycles ({max_loop_cycles}) exceeded without final response")
-        logger.info(f"=== REQUEST FAILED (max cycles exceeded) ===")
+        logger.info("=== REQUEST FAILED (max cycles exceeded) ===")
         
-        # Log error to database
         await log_gigachat_request(
             chat_id=request.chat_id,
             request_text=current_query,
@@ -219,17 +379,19 @@ async def new_message(request: NewMessageRequest, fastapi_request: Request) -> N
             is_json_response=None,
             task_id=None,
             task_result=None,
-            error="Max loop cycles exceeded"
+            error="Max loop cycles exceeded",
         )
         
-        raise HTTPException(status_code=500, detail="Error processing request: max loop cycles exceeded")
+        raise HTTPException(
+            status_code=500,
+            detail="Error processing request: max loop cycles exceeded",
+        )
     except HTTPException:
         raise
     except Exception as e:
         logger.error(f"Unexpected error processing request: {e}", exc_info=True)
-        logger.info(f"=== REQUEST FAILED (exception) ===")
+        logger.info("=== REQUEST FAILED (exception) ===")
         
-        # Log error to database
         await log_gigachat_request(
             chat_id=request.chat_id,
             request_text=current_query,
@@ -238,7 +400,7 @@ async def new_message(request: NewMessageRequest, fastapi_request: Request) -> N
             is_json_response=None,
             task_id=None,
             task_result=None,
-            error=str(e)
+            error=str(e),
         )
         
         raise HTTPException(status_code=500, detail=str(e))

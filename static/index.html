@@ -5,6 +5,10 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>GigaChat Agent</title>
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <!-- KaTeX for LaTeX math rendering -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+    <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+    <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"></script>
     <style>
         * {
             box-sizing: border-box;
@@ -372,6 +376,60 @@
         .message.assistant ul, .message.assistant ol {
             padding-left: 1.5em;
             margin-bottom: 0.8em;
+        }
+
+        /* KaTeX math styling */
+        .message.assistant .katex-display {
+            margin: 0.8em 0;
+            overflow-x: auto;
+            overflow-y: hidden;
+        }
+
+        .message.assistant .katex {
+            font-size: 1.05em;
+        }
+
+        .message.assistant h1, .message.assistant h2, .message.assistant h3 {
+            color: #00d4ff;
+            margin: 0.6em 0 0.4em 0;
+        }
+
+        .message.assistant h1 { font-size: 1.3em; }
+        .message.assistant h2 { font-size: 1.15em; }
+        .message.assistant h3 { font-size: 1.05em; }
+
+        .message.assistant strong {
+            color: #fff;
+        }
+
+        .message.assistant blockquote {
+            border-left: 3px solid rgba(0, 212, 255, 0.4);
+            padding-left: 12px;
+            margin: 0.5em 0;
+            color: #b0b0b0;
+        }
+
+        .message.assistant table {
+            border-collapse: collapse;
+            margin: 0.8em 0;
+            width: 100%;
+        }
+
+        .message.assistant th, .message.assistant td {
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            padding: 6px 10px;
+            text-align: left;
+        }
+
+        .message.assistant th {
+            background: rgba(0, 212, 255, 0.1);
+            color: #00d4ff;
+        }
+
+        .message.assistant hr {
+            border: none;
+            border-top: 1px solid rgba(255, 255, 255, 0.1);
+            margin: 0.8em 0;
         }
 
         .message.error {
@@ -810,6 +868,7 @@
                 }
             }).join('');
 
+            renderMath(container);
             container.scrollTop = container.scrollHeight;
         }
 
@@ -908,6 +967,32 @@
             const div = document.createElement('div');
             div.textContent = text;
             return div.innerHTML;
+        }
+
+        /**
+         * Render LaTeX math expressions inside the given container using KaTeX.
+         * Handles both inline ($...$) and display ($$...$$) math.
+         */
+        function renderMath(container) {
+            if (typeof renderMathInElement === 'undefined') {
+                // KaTeX auto-render not loaded yet — retry after a short delay
+                setTimeout(() => renderMath(container), 200);
+                return;
+            }
+            try {
+                renderMathInElement(container, {
+                    delimiters: [
+                        { left: '$$', right: '$$', display: true },
+                        { left: '$', right: '$', display: false },
+                        { left: '\\(', right: '\\)', display: false },
+                        { left: '\\[', right: '\\]', display: true },
+                    ],
+                    throwOnError: false,
+                    trust: true,
+                });
+            } catch (e) {
+                console.warn('KaTeX renderMathInElement failed:', e);
+            }
         }
     </script>
 </body>
