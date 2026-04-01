@@ -4,6 +4,9 @@ import re
 from dataclasses import dataclass
 from typing import Optional, Tuple, List, Dict
 from returns.result import Result, Success, Failure
+import numpy as np
+
+from .compute import SalesmanEvaluator, CliqueEvaluator, KnapsackEvaluator
 
 logger = logging.getLogger(__name__)
 
@@ -257,10 +260,124 @@ def get_task_summary(task_id: int) -> str:
     return summary
 
 
-def solve_task_from_str(json_response_str: str) -> Result[TaskResult, TaskResult]:
+def _solve_tsp(task_data: dict) -> Result[TaskResult, TaskResult]:
+    """Solve TSP using npqtools QUBOSalesman.
+
+    Args:
+        task_data: Dict with ``data.distances`` — a square distance matrix.
+
+    Returns:
+        Success with route and total distance, or Failure.
     """
-    Принимает JSON-строку, парсит её и решает задачу.
-    Автоматически очищает markdown-форматирование.
+    distances = task_data.get("data", {}).get("distances")
+    if not distances:
+        return Failure(TaskResult("Ошибка: В данных нет поля 'distances'", 1))
+
+    matrix = np.array(distances, dtype=np.int64)
+    logger.info(f"TSP distance matrix shape: {matrix.shape}")
+
+    evaluator = SalesmanEvaluator()
+    result = evaluator.evaluate(matrix)
+
+    if result is None or result.get("characteristics") is None:
+        return Failure(TaskResult("Ошибка: Не удалось найти оптимальный маршрут", 1))
+
+    route = result["characteristics"].tolist()
+    total_distance = int(result["answer"])
+
+    route_str = " → ".join(str(city + 1) for city in route)
+    route_str += f" → {route[0] + 1}"
+
+    answer = (
+        f"Оптимальный маршрут: {route_str}\n"
+        f"Общая длина маршрута: {total_distance}"
+    )
+    logger.info(f"TSP solved: {answer}")
+    return Success(TaskResult(answer, 1))
+
+
+def _solve_clique(task_data: dict) -> Result[TaskResult, TaskResult]:
+    """Solve Max Clique using npqtools QUBOClique.
+
+    Args:
+        task_data: Dict with ``data.adjacency_matrix`` — a square 0/1 matrix.
+
+    Returns:
+        Success with clique vertices and size, or Failure.
+    """
+    adjacency = task_data.get("data", {}).get("adjacency_matrix")
+    if not adjacency:
+        return Failure(TaskResult("Ошибка: В данных нет поля 'adjacency_matrix'", 2))
+
+    matrix = np.array(adjacency, dtype=np.int64)
+    logger.info(f"Max Clique adjacency matrix shape: {matrix.shape}")
+
+    evaluator = CliqueEvaluator()
+    result = evaluator.evaluate(matrix)
+
+    vertices = result["characteristics"].tolist()
+    clique_size = int(result["answer"])
+
+    vertices_str = ", ".join(str(v + 1) for v in vertices)
+
+    answer = (
+        f"Максимальная клика: вершины {{{vertices_str}}}\n"
+        f"Размер клики: {clique_size}"
+    )
+    logger.info(f"Max Clique solved: {answer}")
+    return Success(TaskResult(answer, 2))
+
+
+def _solve_knapsack(task_data: dict) -> Result[TaskResult, TaskResult]:
+    """Solve Knapsack using npqtools QUBOKnapsack.
+
+    Args:
+        task_data: Dict with ``data.capacity`` (int) and ``data.items``
+            (list of dicts with ``weight`` and ``value``).
+
+    Returns:
+        Success with selected items and total value, or Failure.
+    """
+    data = task_data.get("data", {})
+    capacity = data.get("capacity")
+    items = data.get("items")
+
+    if capacity is None or not items:
+        return Failure(TaskResult("Ошибка: В данных нет 'capacity' или 'items'", 3))
+
+    # QUBOKnapsack expects nx2 array: [cost, weight] per row (int64)
+    objects_list = np.array(
+        [[item["value"], item["weight"]] for item in items],
+        dtype=np.int64,
+    )
+    logger.info(f"Knapsack: capacity={capacity}, items={len(items)}, objects_list shape={objects_list.shape}")
+
+    evaluator = KnapsackEvaluator()
+    result = evaluator.evaluate(objects_list, capacity=capacity)
+
+    selected_indices = result["characteristics"].tolist()
+    total_value = int(result["answer"])
+    total_weight = int(result["total_weight"])
+
+    selected_items_str = ", ".join(str(i + 1) for i in selected_indices)
+
+    answer = (
+        f"Выбранные предметы (номера): {{{selected_items_str}}}\n"
+        f"Суммарная ценность: {total_value}\n"
+        f"Суммарный вес: {total_weight} (вместимость: {capacity})"
+    )
+    logger.info(f"Knapsack solved: {answer}")
+    return Success(TaskResult(answer, 3))
+
+
+def solve_task_from_str(json_response_str: str) -> Result[TaskResult, TaskResult]:
+    """Parse a JSON string and solve the corresponding task.
+
+    Supports:
+    * task_id=1 — TSP (via npqtools QUBOSalesman)
+    * task_id=2 — Max Clique (via npqtools QUBOClique)
+    * task_id=3 — Knapsack (via npqtools QUBOKnapsack)
+    * task_id=4 — Arithmetic (via ``eval``)
     """
     logger.info(f"Solving task from JSON string: {json_response_str}")
 
@@ -290,9 +407,15 @@ def solve_task_from_str(json_response_str: str) -> Result[TaskResult, TaskResult
                 logger.error(f"Eval error for expression '{expression}': {e}")
                 return Failure(TaskResult(f"Ошибка вычисления eval: {e}", task_id))
 
-        elif task_id in [1, 2, 3]:
-            logger.warning(f"Task type {task_id} is not yet supported")
-            return Failure(TaskResult(f"Задача типа {task_id} пока не поддерживается", task_id))
+        elif task_id == 1:
+            return _solve_tsp(task_data)
+
+        elif task_id == 2:
+            return _solve_clique(task_data)
+
+        elif task_id == 3:
+            return _solve_knapsack(task_data)
+
         else:
             logger.warning(f"Unknown task type: {task_id}")
             return Failure(TaskResult("Неизвестный тип задачи", task_id))

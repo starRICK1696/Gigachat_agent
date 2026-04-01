@@ -4,7 +4,8 @@ pydantic>=2.5.0
 aiosqlite>=0.19.0
 pyyaml>=6.0.1
 npqtools==0.1.16
+gurobi_optimods
 returns
 gigachat
-scipy 
+scipy
 numpy
