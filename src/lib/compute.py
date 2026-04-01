@@ -91,4 +91,4 @@ class MaxWeightCliqueEvaluator(BasicEvaluator):
         for i in range(len(self.evaluator.solution)):
             for j in range(i + 1, len(self.evaluator.solution)):
                 sum_edge += self.evaluator.adjacency_matrix[self.evaluator.solution[i]][self.evaluator.solution[j]]
-        return {"answer" : len(self.evaluator.solution), "characteristics" : self.evaluator.solution, "sum_edges" : sum_edge}
+        return {"answer" : sum_edge, "characteristics" : self.evaluator.solution}
