@@ -25,15 +25,18 @@ def InitGigachatClient(config) -> GigaChat:
     
     certificate_path = gigachat_config.get("certificate_path", "russian_trusted_root_ca.cer")
     api_key = gigachat_config.get("api_key", "")
+    model = gigachat_config.get("model", "GigaChat")
     
     full_path = os.path.abspath(certificate_path)
     
     logger.debug(f"Initializing GigaChat client with certificate: {full_path}")
     logger.debug(f"API key present: {bool(api_key)}")
+    logger.debug(f"Using model: {model}")
     
     client = GigaChat(
         credentials=api_key,
-        ca_bundle_file=full_path
+        ca_bundle_file=full_path,
+        model=model
     )
     logger.info("GigaChat client initialized successfully")
     return client
