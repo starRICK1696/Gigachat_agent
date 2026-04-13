@@ -66,18 +66,6 @@ def CutQueryIfNeeded(last_query: GigachatResponse, Client: GigaChat, max_tokens:
     return MakeGigachatRequest(prompts.context_reduction(last_query.text), Client)
 
 
-# ==================== Legacy single-phase functions (teammate's code) ====================
-
-def MakeClassificationRequest(query: str, Client: GigaChat) -> GigachatResponse:
-    logger.info("Making classification request to GigaChat")
-    return MakeGigachatRequest(prompts.task_classification(query), Client)
-
-
-def MakeFormulationRequest(query: str, problem_id: int, input_data: dict, answer: dict, Client: GigaChat) -> GigachatResponse:
-    logger.info("Making formulation request to GigaChat")
-    return MakeGigachatRequest(prompts.response_formulation(query, problem_id, input_data, answer), Client)
-
-
 # ==================== Two-phase functions ====================
 
 def ClassifyTaskType(query: str, Client: GigaChat) -> GigachatResponse:
