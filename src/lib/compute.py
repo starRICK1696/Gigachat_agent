@@ -70,8 +70,8 @@ class KnapsackEvaluator(BasicEvaluator):
 
 
 class Tiling2DimEvaluator(BasicEvaluator):
-    def _evaluation_function(self, matrix, width, length, **kwargs):
-        return QUBOTiling2Dim(matrix, width, length)
+    def _evaluation_function(self, matrix, width, length, banned=None, separations=None, **kwargs):
+        return QUBOTiling2Dim(matrix, width, length, banned=banned, separations=separations)
 
     def _return(self):
         return {

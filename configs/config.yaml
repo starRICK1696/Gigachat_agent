@@ -8,7 +8,7 @@ server:
 
 gigachat:
   certificate_path: "russian_trusted_root_ca_pem.crt"
-  api_key: "INSERT_YOUR_KEY"
+  api_key: ""
   model: "GigaChat-2-Max"
   max_tokens: 80000
   max_loop_cycles: 6

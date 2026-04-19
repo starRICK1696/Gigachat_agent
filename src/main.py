@@ -22,6 +22,9 @@ from .lib.task_processing import (
     parse_arithmetic_data,
     parse_matrix_data,
     parse_knapsack_data,
+    parse_production_scheduling_data,
+    parse_multi_knapsack_data,
+    parse_tiling_2d_data,
     get_task_summary,
 )
 from .components.models import (
@@ -248,8 +251,8 @@ async def new_message(request: NewMessageRequest, fastapi_request: Request) -> N
                 logger.info("=== REQUEST COMPLETED (clarification) ===")
                 return NewMessageResponse(gigachat_response=clarification_response.text)
             
-            # ========== CODES 1-4: TASK ==========
-            if classification_code in [1, 2, 3, 4]:
+            # ========== CODES 1-8: TASK ==========
+            if classification_code in [1, 2, 3, 4, 5, 6, 7, 8]:
                 logger.info(f"Classification: TASK (task_id={classification_code})")
                 
                 # ========== PHASE 2: DATA EXTRACTION ==========
@@ -295,6 +298,38 @@ async def new_message(request: NewMessageRequest, fastapi_request: Request) -> N
                             "data": knapsack_data
                         })
                         logger.info(f"Knapsack data: {knapsack_data}")
+                        
+                    elif classification_code == 5:  # Max Weight Clique
+                        adjacency = parse_matrix_data(extraction_response.text)
+                        task_json = json.dumps({
+                            "task_id": 5,
+                            "data": {"adjacency_matrix": adjacency}
+                        })
+                        logger.info(f"Max Weight Clique adjacency matrix: {adjacency}")
+                        
+                    elif classification_code == 6:  # Production Scheduling
+                        scheduling_data = parse_production_scheduling_data(extraction_response.text)
+                        task_json = json.dumps({
+                            "task_id": 6,
+                            "data": scheduling_data
+                        })
+                        logger.info(f"Production Scheduling data: {scheduling_data}")
+
+                    elif classification_code == 7:  # Multi-Knapsack
+                        multi_knapsack_data = parse_multi_knapsack_data(extraction_response.text)
+                        task_json = json.dumps({
+                            "task_id": 7,
+                            "data": multi_knapsack_data
+                        })
+                        logger.info(f"Multi-Knapsack data: {multi_knapsack_data}")
+
+                    elif classification_code == 8:  # 2D Tiling
+                        tiling_data = parse_tiling_2d_data(extraction_response.text)
+                        task_json = json.dumps({
+                            "task_id": 8,
+                            "data": tiling_data
+                        })
+                        logger.info(f"2D Tiling data: {tiling_data}")
                     
                 except Exception as e:
                     logger.error(f"Failed to parse task data: {e}")

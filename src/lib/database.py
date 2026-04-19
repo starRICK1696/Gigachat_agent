@@ -219,7 +219,7 @@ async def update_messages_json(chat_id: int, messages_json: str) -> None:
         logger.debug(f"Messages JSON updated for chat_id={chat_id}")
 
 
-async def get_context_by_id(chat_id: int) -> str | None:
+async def get_context_by_id(chat_id: int):
     """Retrieve context by ID from the items table.
     
     Args:
