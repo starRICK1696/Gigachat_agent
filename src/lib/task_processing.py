@@ -196,23 +196,19 @@ def parse_knapsack_data(response_text: str) -> Dict:
 def parse_production_scheduling_data(response_text: str) -> Dict:
     """Parse production scheduling data from Phase 2 response.
 
-    Expected format::
+    Expected format (3 blocks separated by blank lines)::
 
-        <row1_col1> <row1_col2> ...
-        <row2_col1> <row2_col2> ...
-        ...
-
-        <setup_time1> <setup_time2> ...
-        <job_value1> <job_value2> ...
-
-    The matrix block and the two vector lines are separated by a blank line.
+        Block 1 — Execution time matrix (MxJ): rows=machines, cols=jobs
+        Block 2 — Setup times matrix (JxJ): setup time from job i to job j
+        Block 3 — Job values matrix (MxJ): value of job j on machine i
 
     Args:
         response_text: Model response with scheduling data.
 
     Returns:
-        Dict with ``matrix`` (list of lists), ``setup_times`` (list),
-        ``job_values`` (list).
+        Dict with ``matrix`` (list of lists, MxJ),
+        ``setup_times`` (list of lists, JxJ),
+        ``job_values`` (list of lists, MxJ).
 
     Raises:
         ValueError: If the data cannot be parsed.
@@ -235,48 +231,47 @@ def parse_production_scheduling_data(response_text: str) -> Dict:
     if current_block:
         blocks.append(current_block)
 
-    if len(blocks) < 2:
-        # Try to parse as: matrix lines, then last two lines are vectors
-        all_lines = [l.strip() for l in lines if l.strip()]
-        if len(all_lines) < 3:
-            raise ValueError("Not enough data for production scheduling (need matrix + 2 vectors)")
-
-        # Last two lines are vectors, everything before is matrix
-        vector_lines = all_lines[-2:]
-        matrix_lines = all_lines[:-2]
-
-        matrix = []
-        for ml in matrix_lines:
-            numbers = re.findall(r'-?\d+', ml)
+    def _parse_block(block_lines: List[str]) -> List[List[int]]:
+        """Parse a block of lines into a matrix (list of lists of ints)."""
+        result_matrix = []
+        for bl in block_lines:
+            numbers = re.findall(r'-?\d+', bl)
             if numbers:
-                matrix.append([int(x) for x in numbers])
+                result_matrix.append([int(x) for x in numbers])
+        return result_matrix
 
-        setup_times = [int(x) for x in re.findall(r'-?\d+', vector_lines[0])]
-        job_values = [int(x) for x in re.findall(r'-?\d+', vector_lines[1])]
-    else:
-        # Block 1: matrix, Block 2: vectors (2 lines)
-        matrix = []
-        for ml in blocks[0]:
-            numbers = re.findall(r'-?\d+', ml)
-            if numbers:
-                matrix.append([int(x) for x in numbers])
-
-        # Vectors can be in block 2 (2 lines) or blocks 2 and 3
-        if len(blocks) >= 3:
-            setup_times = [int(x) for x in re.findall(r'-?\d+', blocks[1][0])]
-            job_values = [int(x) for x in re.findall(r'-?\d+', blocks[2][0])]
-        elif len(blocks[1]) >= 2:
-            setup_times = [int(x) for x in re.findall(r'-?\d+', blocks[1][0])]
-            job_values = [int(x) for x in re.findall(r'-?\d+', blocks[1][1])]
+    if len(blocks) >= 3:
+        # Standard 3-block format: matrix, setup_times_matrix, job_values_matrix
+        matrix = _parse_block(blocks[0])
+        setup_times = _parse_block(blocks[1])
+        job_values = _parse_block(blocks[2])
+    elif len(blocks) == 2:
+        # Fallback: block 1 = matrix, block 2 has setup_times and job_values
+        matrix = _parse_block(blocks[0])
+        block2_parsed = _parse_block(blocks[1])
+        if len(block2_parsed) >= 2:
+            # Try to figure out: if block2 has enough rows for JxJ + MxJ, split accordingly
+            num_jobs = len(matrix[0]) if matrix else 0
+            if len(block2_parsed) == num_jobs + len(matrix):
+                # First num_jobs rows = setup_times (JxJ), rest = job_values (MxJ)
+                setup_times = block2_parsed[:num_jobs]
+                job_values = block2_parsed[num_jobs:]
+            else:
+                # Assume first half-ish is setup, rest is values
+                # Or treat as 2 vectors (legacy format)
+                setup_times = [block2_parsed[0]]
+                job_values = [block2_parsed[1]] if len(block2_parsed) > 1 else []
         else:
-            raise ValueError("Cannot find setup_times and job_values vectors")
+            raise ValueError("Block 2 has insufficient data for setup_times and job_values")
+    else:
+        raise ValueError("Not enough blocks for production scheduling (need 3 blocks separated by blank lines)")
 
     if not matrix:
         raise ValueError("Empty execution time matrix")
     if not setup_times:
-        raise ValueError("Empty setup_times vector")
+        raise ValueError("Empty setup_times matrix")
     if not job_values:
-        raise ValueError("Empty job_values vector")
+        raise ValueError("Empty job_values matrix")
 
     result = {
         "matrix": matrix,
@@ -666,9 +661,10 @@ def _solve_production_scheduling(task_data: dict) -> Result[TaskResult, TaskResu
     """Solve Production Scheduling using npqtools QUBOProductionScheduling.
 
     Args:
-        task_data: Dict with ``data.matrix`` (2D execution time matrix),
-            ``data.setup_times`` (1D setup time vector),
-            ``data.job_values`` (1D job value vector).
+        task_data: Dict with ``data.matrix`` (MxJ execution time matrix,
+            rows=machines, cols=jobs), ``data.setup_times`` (JxJ setup time
+            matrix between jobs), ``data.job_values`` (MxJ job value matrix,
+            rows=machines, cols=jobs).
 
     Returns:
         Success with scheduling result and total value, or Failure.
@@ -683,25 +679,38 @@ def _solve_production_scheduling(task_data: dict) -> Result[TaskResult, TaskResu
             "Ошибка: В данных нет полей 'matrix', 'setup_times' или 'job_values'", 6
         ))
 
+    # QUBOProductionScheduling expects:
+    #   jobs_completion_time_matrix (MxJ) — rows=machines, cols=jobs
+    #   setup_times_matrix (JxJ) — setup time from job i to job j
+    #   jobs_value_matrix (MxJ) — value of job j on machine i
     matrix_np = np.array(matrix, dtype=np.int64)
     setup_times_np = np.array(setup_times, dtype=np.int64)
     job_values_np = np.array(job_values, dtype=np.int64)
 
     logger.info(
         f"Production Scheduling: matrix shape={matrix_np.shape}, "
-        f"setup_times={setup_times_np.tolist()}, job_values={job_values_np.tolist()}"
+        f"setup_times shape={setup_times_np.shape}, job_values shape={job_values_np.shape}"
     )
 
     evaluator = ProductionSchedulingEvaluator()
     result = evaluator.evaluate(matrix_np, setup_times=setup_times_np, job_values=job_values_np)
 
-    schedule = result["characteristics"].tolist()
+    # solution is a list of lists: one list per machine, each containing job indices
+    schedule = result["characteristics"]
     total_value = result["answer"]
 
-    schedule_str = ", ".join(str(s + 1) for s in schedule)
+    # Format: show which jobs are assigned to each machine
+    schedule_lines = []
+    for machine_idx, jobs_on_machine in enumerate(schedule):
+        if jobs_on_machine:
+            jobs_str = ", ".join(str(j + 1) for j in jobs_on_machine)
+            schedule_lines.append(f"Станок {machine_idx + 1}: заказы [{jobs_str}]")
+        else:
+            schedule_lines.append(f"Станок {machine_idx + 1}: нет заказов")
+    schedule_str = "\n".join(schedule_lines)
 
     answer = (
-        f"Оптимальное расписание (порядок заказов): [{schedule_str}]\n"
+        f"Оптимальное распределение заказов по станкам:\n{schedule_str}\n"
         f"Целевое значение: {total_value}"
     )
     logger.info(f"Production Scheduling solved: {answer}")
