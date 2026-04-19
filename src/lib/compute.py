@@ -21,7 +21,7 @@ class BasicEvaluator:
     def _return(self):
         raise NotImplementedError("Return function is not implemented.")
 
-    def evaluate(self, matrix, display=False, num_reads=100000, *args, **kwargs):
+    def evaluate(self, matrix, display=False, num_reads=1000000, *args, **kwargs):
         self.evaluator = self._evaluation_function(matrix, *args, **kwargs)
         self.evaluator.find_min_energy(num_reads)
         return self._return()
@@ -91,7 +91,7 @@ class ProductionSchedulingEvaluator(BasicEvaluator):
 
     def _return(self):
         return {
-            "answer": self.evaluator.min_energy + self.evaluator.delta,
+            "answer": self.evaluator.min_energy,
             "characteristics": self.evaluator.solution,
         }
 

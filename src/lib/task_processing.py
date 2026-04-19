@@ -695,22 +695,35 @@ def _solve_production_scheduling(task_data: dict) -> Result[TaskResult, TaskResu
     evaluator = ProductionSchedulingEvaluator()
     result = evaluator.evaluate(matrix_np, setup_times=setup_times_np, job_values=job_values_np)
 
-    # solution is a list of lists: one list per machine, each containing job indices
+    # solution is a list of M sublists (one per MACHINE/СТАНОК),
+    # each sublist is an ordered queue of JOB/РАБОТА indices (0-based).
+    # e.g. [[2, 0, 1], [3]] means:
+    #   СТАНОК 1 выполняет: работу 3 → работу 1 → работу 2
+    #   СТАНОК 2 выполняет: работу 4
     schedule = result["characteristics"]
     total_value = result["answer"]
 
-    # Format: show which jobs are assigned to each machine
+    num_machines = matrix_np.shape[0]
+    num_jobs = matrix_np.shape[1]
+    total_jobs_assigned = sum(len(q) for q in schedule)
+
+    # Format: explicitly label СТАНОК (machine) and РАБОТА (job) to avoid confusion
     schedule_lines = []
-    for machine_idx, jobs_on_machine in enumerate(schedule):
-        if jobs_on_machine:
-            jobs_str = ", ".join(str(j + 1) for j in jobs_on_machine)
-            schedule_lines.append(f"Станок {machine_idx + 1}: заказы [{jobs_str}]")
+    for machine_idx, job_queue in enumerate(schedule):
+        if job_queue:
+            queue_str = " → ".join(f"работа {j + 1}" for j in job_queue)
+            schedule_lines.append(
+                f"  СТАНОК {machine_idx + 1}: очередь выполнения: {queue_str}"
+            )
         else:
-            schedule_lines.append(f"Станок {machine_idx + 1}: нет заказов")
+            schedule_lines.append(f"  СТАНОК {machine_idx + 1}: не задействован (нет работ)")
     schedule_str = "\n".join(schedule_lines)
 
     answer = (
-        f"Оптимальное распределение заказов по станкам:\n{schedule_str}\n"
+        f"Задача: {num_jobs} работ, {num_machines} станков.\n"
+        f"Результат — для каждого СТАНКА указана очередь РАБОТ (порядок выполнения):\n"
+        f"{schedule_str}\n"
+        f"Всего распределено работ: {total_jobs_assigned} из {num_jobs}\n"
         f"Целевое значение: {total_value}"
     )
     logger.info(f"Production Scheduling solved: {answer}")
