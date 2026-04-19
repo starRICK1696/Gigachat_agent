@@ -21,7 +21,7 @@ class BasicEvaluator:
     def _return(self):
         raise NotImplementedError("Return function is not implemented.")
 
-    def evaluate(self, matrix, display=False, num_reads=100, *args, **kwargs):
+    def evaluate(self, matrix, display=False, num_reads=100000, *args, **kwargs):
         self.evaluator = self._evaluation_function(matrix, *args, **kwargs)
         self.evaluator.find_min_energy(num_reads)
         return self._return()
@@ -74,8 +74,13 @@ class Tiling2DimEvaluator(BasicEvaluator):
         return QUBOTiling2Dim(matrix, width, length, banned=banned, separations=separations)
 
     def _return(self):
+        s = 0
+        for row in self.evaluator.solution:
+            for i in row:
+                if i:
+                    s += 1
         return {
-            "answer": sum([sum(row) for row in self.evaluator.solution]),
+            "answer": s,
             "characteristics": self.evaluator.solution,
         }
 
